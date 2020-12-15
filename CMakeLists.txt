@@ -29,11 +29,18 @@ endif()
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.cpp
     src/vulkansift/vulkan_instance.cpp
+    src/vulkansift/viz/vulkan_viewer.cpp
+    src/vulkansift/utils/vulkan_utils.cpp
     src/vulkansift/utils/vulkan_loader.cpp
     src/vulkansift/utils/GLFW_loader.cpp
 )
 set(VULKANSIFT_LIB_HEADERS
     src/vulkansift/vulkansift.h
+)
+
+set(VULKANSIFT_LIB_SHADERS
+    src/vulkansift/viz/shaders/shader.vert
+    src/vulkansift/viz/shaders/shader.frag
 )
 
 #####################################################################################
@@ -69,6 +76,30 @@ target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_
 target_link_libraries(vulkansift
     dl
 )
+
+# Compile shaders if modified and store them in build/shaders/
+set(VULKANSIFT_LIB_SHADERS_SPV "")
+foreach(shader_path ${VULKANSIFT_LIB_SHADERS})
+
+    get_filename_component(shader_filename ${shader_path} NAME)
+    message(${shader_filename})
+
+    set(output_file ${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader_filename}.spv)
+    message(${output_file})
+    add_custom_command(
+        OUTPUT ${output_file}
+        COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/shaders
+        COMMAND glslc ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path} -g -o ${output_file}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path}
+        COMMENT "Building ${shader_filename}.spv --> ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path} -g -o ${output_file}"
+    )
+    message(STATUS "Generating build command for ${shader_name}.spv")
+    set(VULKANSIFT_LIB_SHADERS_SPV ${VULKANSIFT_LIB_SHADERS_SPV} ${output_file} )
+endforeach()
+add_custom_target(vulkansift_shaders ALL DEPENDS ${VULKANSIFT_LIB_SHADERS_SPV})
+message(${VULKANSIFT_LIB_SHADERS_SPV})
+add_dependencies(vulkansift vulkansift_shaders)
+
 #####################################################################################
 
 if(VULKANSIFT_BUILD_EXAMPLES)
