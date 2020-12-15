@@ -1,6 +1,8 @@
 #ifndef VULKAN_SIFT_H
 #define VULKAN_SIFT_H
 
+#include "vulkansift/vulkan_instance.h"
+
 struct VulkanSiftFeature
 {
   int x;

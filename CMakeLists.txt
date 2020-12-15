@@ -28,6 +28,9 @@ endif()
 # VulkanSift library sources
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.cpp
+    src/vulkansift/vulkan_instance.cpp
+    src/vulkansift/utils/vulkan_loader.cpp
+    src/vulkansift/utils/GLFW_loader.cpp
 )
 set(VULKANSIFT_LIB_HEADERS
     src/vulkansift/vulkansift.h
