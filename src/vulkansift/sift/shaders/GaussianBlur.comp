@@ -1,0 +1,56 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(r8, binding = 0) uniform image2D img_input;
+layout(r8, binding = 1) uniform image2D img_output;
+
+layout(push_constant) uniform PushConst {
+    uint verticalPassFlag;
+    float sigma;
+    uint offset_y;
+} push_const;
+
+float kernel[20];
+
+void main() {
+
+    int kernel_size = min(int(ceil(push_const.sigma * 4.f) + 1.f),20);
+    kernel[0] = 1.f;
+    float sum_kernel = kernel[0];
+    for (int i = 1; i < kernel_size; i++)
+    {
+        kernel[i] = exp(-0.5 * pow(float(i), 2.f) / pow(push_const.sigma, 2.f));
+        sum_kernel += 2 * kernel[i];
+    }
+    for (int i = 0; i < kernel_size; i++)
+    {
+        kernel[i] /= sum_kernel;
+    }
+
+    ivec2 coords_in = ivec2(gl_GlobalInvocationID);
+    if(push_const.verticalPassFlag==0) {
+      coords_in.y += int(push_const.offset_y);
+    }
+
+    ivec2 coords_out = ivec2(gl_GlobalInvocationID);
+    if(push_const.verticalPassFlag==1) {
+      coords_out.y += int(push_const.offset_y);
+    }
+
+    float rpix = imageLoad(img_input, coords_in).r * kernel[0];
+    if(push_const.verticalPassFlag==0) {
+        for(int i=1; i<kernel_size;i++) {
+            rpix += (imageLoad(img_input, coords_in + ivec2(i, 0)).r +imageLoad(img_input, coords_in - ivec2(i, 0)).r) * kernel[i];
+        }
+    }
+    else if(push_const.verticalPassFlag==1) {
+        for(int i=1; i<kernel_size;i++) {
+            rpix += (imageLoad(img_input, coords_in + ivec2(0, i)).r +imageLoad(img_input, coords_in - ivec2(0, i)).r) * kernel[i];
+        }
+    }
+    else {
+        rpix = imageLoad(img_input, coords_in).r;
+    }
+
+    imageStore(img_output, coords_out, vec4(rpix, 0.f, 0.f, 1.f));
+}

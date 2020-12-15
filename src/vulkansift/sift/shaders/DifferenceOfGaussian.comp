@@ -1,0 +1,30 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(r8, binding = 0) uniform image2D img_input;
+layout(rgba32f, binding = 1) uniform image2D img_output;
+
+
+const float kernel[4] = {0.216106, 0.190713, 0.131075, 0.0701593};
+layout(push_constant) uniform PushConst {
+    uint offset_y;
+} push_const;
+
+void main() {
+    ivec2 coords = ivec2(gl_GlobalInvocationID);
+
+    float sp1_val = imageLoad(img_input, ivec2(coords.x, coords.y+push_const.offset_y)).r;
+    float s_val = imageLoad(img_input, ivec2(coords.x, coords.y)).r;
+    //imageStore(img_output, coords, vec4(sp1_val-s_val, 0.f, 0.f, 1.f));
+    float diff = sp1_val-s_val;
+    float val =0;
+    if(diff>=0) {
+        val = (diff - 0.f) * (1.f - 0.f) / (0.15f - 0.f) + 0.f;
+        imageStore(img_output, coords, vec4(0.f, val, 0.f, 1.f));
+    }
+    else {
+        val = (-1.f * diff - 0.f) * (1.f - 0.f) / (0.15f - 0.f) + 0.f;
+        imageStore(img_output, coords, vec4(val, 0.f, 0.f, 1.f));
+    }
+    //imageStore(img_output, coords, vec4(sp1_val-s_val, 0.f, 0.f, 1.f));
+}

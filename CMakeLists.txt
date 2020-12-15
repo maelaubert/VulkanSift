@@ -42,6 +42,9 @@ set(VULKANSIFT_LIB_HEADERS
 set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/viz/shaders/shader.vert
     src/vulkansift/viz/shaders/shader.frag
+
+    src/vulkansift/sift/shaders/GaussianBlur.comp
+    src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
 )
 
 #####################################################################################
