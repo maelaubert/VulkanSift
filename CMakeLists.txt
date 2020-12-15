@@ -29,6 +29,7 @@ endif()
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.cpp
     src/vulkansift/vulkan_instance.cpp
+    src/vulkansift/sift/sift_detector.cpp
     src/vulkansift/viz/vulkan_viewer.cpp
     src/vulkansift/utils/vulkan_utils.cpp
     src/vulkansift/utils/vulkan_loader.cpp
@@ -93,7 +94,7 @@ foreach(shader_path ${VULKANSIFT_LIB_SHADERS})
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path}
         COMMENT "Building ${shader_filename}.spv --> ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path} -g -o ${output_file}"
     )
-    message(STATUS "Generating build command for ${shader_name}.spv")
+    message(STATUS "Generating build command for ${shader_filename}.spv")
     set(VULKANSIFT_LIB_SHADERS_SPV ${VULKANSIFT_LIB_SHADERS_SPV} ${output_file} )
 endforeach()
 add_custom_target(vulkansift_shaders ALL DEPENDS ${VULKANSIFT_LIB_SHADERS_SPV})

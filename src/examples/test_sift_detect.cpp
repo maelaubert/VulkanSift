@@ -20,6 +20,12 @@ int main()
     std::cout << "Impossible to initialize VulkanViewer" << std::endl;
     return -1;
   }
+  VulkanSIFT::SiftDetector detector;
+  if (!detector.init(&instance, 640, 480))
+  {
+    std::cout << "Impossible to initialize SiftDetector" << std::endl;
+    return -1;
+  }
 
   // Read image with OpenCV
   cv::Mat img1 = cv::imread("res/img1.ppm");
@@ -41,11 +47,27 @@ int main()
 
   while (!viewer.shouldStop())
   {
+    std::vector<VulkanSIFT::SIFT_Feature> feat_vec;
+    detector.compute(image1, feat_vec);
+
+    cv::Mat draw_frame;
+    img1_grey.convertTo(draw_frame, CV_8UC3);
+    cv::cvtColor(draw_frame, draw_frame, cv::COLOR_GRAY2BGR);
+    // cv::copyTo(cv_frame_color, draw_frame, cv::Mat());
+    for (int i = 0; i < feat_vec.size(); i++)
+    {
+      cv::circle(draw_frame, cv::Point(feat_vec[i].x, feat_vec[i].y), 2, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
+    }
+    cv::imshow("Test", draw_frame);
+    cv::waitKey(1);
+
     float gpu_time;
     viewer.execOnce(image1, &gpu_time);
   }
 
   delete[] image1;
+
+  detector.terminate();
   viewer.terminate();
   instance.terminate();
 
