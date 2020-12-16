@@ -56,10 +56,10 @@ int main()
     // cv::copyTo(cv_frame_color, draw_frame, cv::Mat());
     for (int i = 0; i < feat_vec.size(); i++)
     {
-      cv::circle(draw_frame, cv::Point(feat_vec[i].x, feat_vec[i].y), 2, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
+      cv::circle(draw_frame, cv::Point(feat_vec[i].orig_x, feat_vec[i].orig_y), 3, cv::Scalar(0, 0, 255), 1);
     }
     cv::imshow("Test", draw_frame);
-    cv::waitKey(1);
+    cv::waitKey(30);
 
     float gpu_time;
     viewer.execOnce(image1, &gpu_time);

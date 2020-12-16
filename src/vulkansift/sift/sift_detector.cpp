@@ -139,7 +139,7 @@ bool SiftDetector::initMemory()
     m_blur_temp_results.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R8_UNORM,
+      if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R16_UNORM,
                                          VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -155,7 +155,7 @@ bool SiftDetector::initMemory()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_octave_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 3),
-                                     VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+                                     VK_FORMAT_R16_SNORM, VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -171,11 +171,58 @@ bool SiftDetector::initMemory()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_octave_DoG_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width,
-                                         // m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8_SNORM, VK_IMAGE_TILING_OPTIMAL,
-                                         m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+                                         m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R16_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+                                         // m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
                                          VK_IMAGE_USAGE_STORAGE_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
         logError(LOG_TAG, "Failed to create DoG octave image.");
+        return false;
+      }
+    }
+  }
+
+  // Need IndirectDispatch buffers info for orientation and descriptor dispatch
+  {
+    m_indispatch_buffers.resize(m_nb_octave);
+    VkDeviceSize buffer_size = sizeof(uint32_t) * 3;
+    for (int i = 0; i < m_nb_octave; i++)
+    {
+      if (!m_indispatch_buffers[i].create(m_device, m_physical_device, buffer_size,
+                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+      {
+        logError(LOG_TAG, "Failed to create indirect dispatch buffer.");
+        return false;
+      }
+    }
+  }
+
+  // Create buffer to store SIFT data
+  {
+    m_sift_keypoints_buffers.resize(m_nb_octave);
+    for (int i = 0; i < m_nb_octave; i++)
+    {
+      if (!m_sift_keypoints_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+      {
+        logError(LOG_TAG, "Failed to create SIFT buffer storage.");
+        return false;
+      }
+    }
+  }
+
+  // Create staging buffer to send back SIFT data to CPU
+  {
+    m_sift_staging_out_buffers.resize(m_nb_octave);
+    for (int i = 0; i < m_nb_octave; i++)
+    {
+      if (!m_sift_staging_out_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
+                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT))
+      {
+        logError(LOG_TAG, "Failed to create SIFT buffer storage.");
         return false;
       }
     }
@@ -207,6 +254,16 @@ bool SiftDetector::initMemory()
   {
     logError(LOG_TAG, "Failed to map input buffer memory.");
     return false;
+  }
+
+  m_output_sift_ptr.resize(m_nb_octave);
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    if (vkMapMemory(m_device, m_sift_staging_out_buffers[i].getBufferMemory(), 0, VK_WHOLE_SIZE, 0, &m_output_sift_ptr[i]) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to map output buffer memory.");
+      return false;
+    }
   }
 
   return true;
@@ -373,7 +430,6 @@ bool SiftDetector::initDescriptors()
       VkDescriptorImageInfo dog_output_image_info{
           .sampler = VK_NULL_HANDLE, .imageView = m_octave_DoG_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       std::array<VkWriteDescriptorSet, 2> descriptor_writes;
-      // First write for horizontal pass
       descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                               .dstSet = m_dog_desc_sets[i],
                               .dstBinding = 0,
@@ -395,6 +451,104 @@ bool SiftDetector::initDescriptors()
       vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
     }
   }
+  ///////////////////////////////////////////////////
+  // Descriptors for ExtractKeypoints pipeline
+  ///////////////////////////////////////////////////
+  {
+    VkDescriptorSetLayoutBinding dog_image_layout_binding{.binding = 0,
+                                                          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                          .descriptorCount = 1,
+                                                          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                          .pImmutableSamplers = nullptr};
+    VkDescriptorSetLayoutBinding sift_buffer_layout_binding{.binding = 1,
+                                                            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            .descriptorCount = 1,
+                                                            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                            .pImmutableSamplers = nullptr};
+    VkDescriptorSetLayoutBinding indispatch_buffer_layout_binding{.binding = 2,
+                                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                  .descriptorCount = 1,
+                                                                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                  .pImmutableSamplers = nullptr};
+
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{dog_image_layout_binding, sift_buffer_layout_binding, indispatch_buffer_layout_binding};
+
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = bindings.size(), .pBindings = bindings.data()};
+
+    if (vkCreateDescriptorSetLayout(m_device, &layout_info, nullptr, &m_extractkpts_desc_set_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create DifferenceOfGaussian descriptor set layout");
+      return false;
+    }
+
+    // Create descriptor pool to allocate descriptor sets (generic)
+    std::array<VkDescriptorPoolSize, 3> pool_sizes;
+    pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave};
+    pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
+    pool_sizes[2] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
+    VkDescriptorPoolCreateInfo descriptor_pool_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                    .maxSets = m_nb_octave,
+                                                    .poolSizeCount = pool_sizes.size(),
+                                                    .pPoolSizes = pool_sizes.data()};
+    if (vkCreateDescriptorPool(m_device, &descriptor_pool_info, nullptr, &m_extractkpts_desc_pool) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create DifferenceOfGaussian descriptor pool");
+      return false;
+    }
+
+    // Create descriptor sets that can be bound in command buffer
+    std::vector<VkDescriptorSetLayout> layouts{m_nb_octave, m_extractkpts_desc_set_layout};
+    m_extractkpts_desc_sets.resize(m_nb_octave);
+    VkDescriptorSetAllocateInfo alloc_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                           .descriptorPool = m_extractkpts_desc_pool,
+                                           .descriptorSetCount = m_nb_octave,
+                                           .pSetLayouts = layouts.data()};
+
+    if (vkAllocateDescriptorSets(m_device, &alloc_info, m_extractkpts_desc_sets.data()) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to allocate horizontal DifferenceOfGaussian descriptor set");
+      return false;
+    }
+
+    // Write descriptor sets
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      VkDescriptorImageInfo dog_input_image_info{
+          .sampler = VK_NULL_HANDLE, .imageView = m_octave_DoG_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorBufferInfo sift_buffer_info{.buffer = m_sift_keypoints_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      VkDescriptorBufferInfo indispatch_buffer_info{.buffer = m_indispatch_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      std::array<VkWriteDescriptorSet, 3> descriptor_writes;
+      descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_extractkpts_desc_sets[i],
+                              .dstBinding = 0,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                              .pImageInfo = &dog_input_image_info,
+                              .pBufferInfo = nullptr,
+                              .pTexelBufferView = nullptr};
+      descriptor_writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_extractkpts_desc_sets[i],
+                              .dstBinding = 1,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              .pImageInfo = nullptr,
+                              .pBufferInfo = &sift_buffer_info,
+                              .pTexelBufferView = nullptr};
+      descriptor_writes[2] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_extractkpts_desc_sets[i],
+                              .dstBinding = 2,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              .pImageInfo = nullptr,
+                              .pBufferInfo = &indispatch_buffer_info,
+                              .pTexelBufferView = nullptr};
+      vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
+    }
+  }
 
   return true;
 }
@@ -404,6 +558,16 @@ struct GaussianBlurPushConsts
   uint32_t is_vertical;
   float sigma;
   uint32_t offset_y;
+};
+
+struct ExtractKeypointsPushConsts
+{
+  uint32_t offset_y_per_scale;
+  float scale_factor;
+  float sigma_multiplier;
+  float soft_dog_threshold;
+  float dog_threshold;
+  float edge_threshold;
 };
 
 bool SiftDetector::initPipelines()
@@ -481,6 +645,44 @@ bool SiftDetector::initPipelines()
     }
     vkDestroyShaderModule(m_device, dog_shader_module, nullptr);
   }
+  //////////////////////////////////////
+  // Setup ExtractKeypoints pipeline
+  //////////////////////////////////////
+  {
+    VkShaderModule extractkpts_shader_module;
+    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ExtractKeypoints.comp.spv", &extractkpts_shader_module);
+
+    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(ExtractKeypointsPushConsts)};
+    VkPipelineLayoutCreateInfo extractkpts_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                                .setLayoutCount = 1,
+                                                                .pSetLayouts = &m_extractkpts_desc_set_layout,
+                                                                .pushConstantRangeCount = 1,
+                                                                .pPushConstantRanges = &push_constant_range};
+    if (vkCreatePipelineLayout(m_device, &extractkpts_pipeline_layout_info, nullptr, &m_extractkpts_pipeline_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ExtractKeypoints pipeline layout");
+      return false;
+    }
+
+    VkPipelineShaderStageCreateInfo extractkpts_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                      .module = extractkpts_shader_module,
+                                                                      .pName = "main"};
+
+    VkComputePipelineCreateInfo extractkpts_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                                             .pNext = nullptr,
+                                                             .flags = 0,
+                                                             .stage = extractkpts_pipeline_shader_stage,
+                                                             .layout = m_extractkpts_pipeline_layout,
+                                                             .basePipelineHandle = VK_NULL_HANDLE,
+                                                             .basePipelineIndex = -1};
+    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &extractkpts_pipeline_info, nullptr, &m_extractkpts_pipeline) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ExtractKeypoints pipeline");
+      return false;
+    }
+    vkDestroyShaderModule(m_device, extractkpts_shader_module, nullptr);
+  }
   return true;
 }
 
@@ -529,6 +731,8 @@ bool SiftDetector::initCommandBuffer()
     VkImageSubresourceRange range{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdClearColorImage(m_command_buffer, m_blur_temp_results[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
+    vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 0);
+    vkCmdFillBuffer(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -681,7 +885,79 @@ bool SiftDetector::initCommandBuffer()
     vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                          image_barriers.size(), image_barriers.data());
   }
+  endMarkerRegion(m_command_buffer);
 
+  // ExtractKeypoints
+  beginMarkerRegion(m_command_buffer, "ExtrackKeypoints");
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+      buffer_barriers.push_back(m_indispatch_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+  }
+
+  vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_extractkpts_pipeline);
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    ExtractKeypointsPushConsts pushconst;
+    pushconst.offset_y_per_scale = m_octave_image_sizes[i].height;
+    pushconst.sigma_multiplier = powf(2.f, static_cast<float>(i)) * m_sigma_min;
+    pushconst.scale_factor = powf(2.f, i) * m_scale_factor_min;
+    pushconst.soft_dog_threshold = m_soft_dog_threshold;
+    pushconst.dog_threshold = m_dog_threshold;
+    pushconst.edge_threshold = m_kp_edge_threshold;
+    logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
+    vkCmdPushConstants(m_command_buffer, m_extractkpts_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
+    vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_extractkpts_pipeline_layout, 0, 1, &m_extractkpts_desc_sets[i], 0,
+                            nullptr);
+    vkCmdDispatch(m_command_buffer, m_octave_image_sizes[i].width / 8, m_octave_image_sizes[i].height / 8, m_nb_scale_per_oct);
+    {
+      std::vector<VkBufferMemoryBarrier> buffer_barriers;
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+    }
+  }
+  endMarkerRegion(m_command_buffer);
+
+  beginMarkerRegion(m_command_buffer, "CopySiftFeats");
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_TRANSFER_READ_BIT));
+      buffer_barriers.push_back(m_sift_staging_out_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_TRANSFER_WRITE_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
+  }
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    VkBufferCopy orb_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_sift_buff_max_elem + sizeof(uint32_t)};
+    vkCmdCopyBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &orb_copy_region);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(0));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_sift_staging_out_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_HOST_READ_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
+  }
   endMarkerRegion(m_command_buffer);
 
   if (vkEndCommandBuffer(m_command_buffer) != VK_SUCCESS)
@@ -717,6 +993,35 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
 
   vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
 
+  // Copy SIFT features
+  logInfo(LOG_TAG, "Before SIFT copy");
+  sift_feats.clear();
+
+  int total_nb_sift = 0;
+  std::vector<int> nb_feat_per_octave;
+
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    VkMappedMemoryRange mem_range_output{
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_sift_staging_out_buffers[i].getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
+    vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
+    uint32_t nb_sift_feat = ((uint32_t *)m_output_sift_ptr[i])[0];
+    nb_sift_feat = std::min(nb_sift_feat, m_sift_buff_max_elem);
+    nb_feat_per_octave.push_back(nb_sift_feat);
+    total_nb_sift += nb_sift_feat;
+  }
+  sift_feats.resize(total_nb_sift);
+
+  int vec_offset = 0;
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    SIFT_Feature *orb_feats_ptr = (SIFT_Feature *)((uint32_t *)(m_output_sift_ptr[i]) + 1);
+    memcpy(sift_feats.data() + vec_offset, orb_feats_ptr, sizeof(SIFT_Feature) * nb_feat_per_octave[i]);
+    vec_offset += nb_feat_per_octave[i];
+  }
+
+  logInfo(LOG_TAG, "%d SIFT found", int(sift_feats.size()));
+  logInfo(LOG_TAG, "%d SIFT found", total_nb_sift);
   return true;
 }
 
@@ -740,10 +1045,19 @@ void SiftDetector::terminate()
   VK_NULL_SAFE_DELETE(m_dog_pipeline_layout, vkDestroyPipelineLayout(m_device, m_dog_pipeline_layout, nullptr));
   VK_NULL_SAFE_DELETE(m_dog_desc_pool, vkDestroyDescriptorPool(m_device, m_dog_desc_pool, nullptr));
   VK_NULL_SAFE_DELETE(m_dog_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_dog_desc_set_layout, nullptr));
+  // ExtractKeypoints
+  VK_NULL_SAFE_DELETE(m_extractkpts_pipeline, vkDestroyPipeline(m_device, m_extractkpts_pipeline, nullptr));
+  VK_NULL_SAFE_DELETE(m_extractkpts_pipeline_layout, vkDestroyPipelineLayout(m_device, m_extractkpts_pipeline_layout, nullptr));
+  VK_NULL_SAFE_DELETE(m_extractkpts_desc_pool, vkDestroyDescriptorPool(m_device, m_extractkpts_desc_pool, nullptr));
+  VK_NULL_SAFE_DELETE(m_extractkpts_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_extractkpts_desc_set_layout, nullptr));
 
   // Destroy memory objects
   // Unmap before
   vkUnmapMemory(m_device, m_input_image_staging_in_buffer.getBufferMemory());
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    vkUnmapMemory(m_device, m_sift_staging_out_buffers[i].getBufferMemory());
+  }
 
   m_input_image.destroy(m_device);
   m_input_image_staging_in_buffer.destroy(m_device);
@@ -752,10 +1066,16 @@ void SiftDetector::terminate()
     m_blur_temp_results[i].destroy(m_device);
     m_octave_images[i].destroy(m_device);
     m_octave_DoG_images[i].destroy(m_device);
+    m_indispatch_buffers[i].destroy(m_device);
+    m_sift_keypoints_buffers[i].destroy(m_device);
+    m_sift_staging_out_buffers[i].destroy(m_device);
   }
   m_octave_images.clear();
   m_blur_temp_results.clear();
   m_octave_DoG_images.clear();
+  m_indispatch_buffers.clear();
+  m_sift_keypoints_buffers.clear();
+  m_sift_staging_out_buffers.clear();
 
   // Destroy command pool
   VK_NULL_SAFE_DELETE(m_command_pool, vkDestroyCommandPool(m_device, m_command_pool, nullptr));

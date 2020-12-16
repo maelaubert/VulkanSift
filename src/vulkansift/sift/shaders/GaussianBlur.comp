@@ -1,8 +1,8 @@
 #version 450
 
 layout(local_size_x = 8, local_size_y = 8) in;
-layout(r8, binding = 0) uniform image2D img_input;
-layout(r8, binding = 1) uniform image2D img_output;
+layout(r16, binding = 0) uniform image2D img_input;
+layout(r16, binding = 1) uniform image2D img_output;
 
 layout(push_constant) uniform PushConst {
     uint verticalPassFlag;
@@ -47,9 +47,6 @@ void main() {
         for(int i=1; i<kernel_size;i++) {
             rpix += (imageLoad(img_input, coords_in + ivec2(0, i)).r +imageLoad(img_input, coords_in - ivec2(0, i)).r) * kernel[i];
         }
-    }
-    else {
-        rpix = imageLoad(img_input, coords_in).r;
     }
 
     imageStore(img_output, coords_out, vec4(rpix, 0.f, 0.f, 1.f));

@@ -85,12 +85,12 @@ class SiftDetector
   std::vector<VulkanUtils::Image> m_blur_temp_results;
   std::vector<VulkanUtils::Image> m_octave_images;
   std::vector<VulkanUtils::Image> m_octave_DoG_images;
-
-  // TODO
-  VulkanUtils::Buffer m_input_image_staging_in_buffer;
-
   // Buffers
-  // TODO
+  VulkanUtils::Buffer m_input_image_staging_in_buffer;
+  std::vector<VulkanUtils::Buffer> m_sift_staging_out_buffers;
+  uint32_t m_sift_buff_max_elem = 50000;
+  std::vector<VulkanUtils::Buffer> m_sift_keypoints_buffers;
+  std::vector<VulkanUtils::Buffer> m_indispatch_buffers;
 
   ////////////////////
 
@@ -116,8 +116,22 @@ class SiftDetector
   std::vector<VkDescriptorSet> m_dog_desc_sets;
   VkPipelineLayout m_dog_pipeline_layout = VK_NULL_HANDLE;
   VkPipeline m_dog_pipeline = VK_NULL_HANDLE;
+  // ExtractKeypoints
+  VkDescriptorSetLayout m_extractkpts_desc_set_layout = VK_NULL_HANDLE;
+  VkDescriptorPool m_extractkpts_desc_pool = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> m_extractkpts_desc_sets;
+  VkPipelineLayout m_extractkpts_pipeline_layout = VK_NULL_HANDLE;
+  VkPipeline m_extractkpts_pipeline = VK_NULL_HANDLE;
+  // ComputeOrientation
+  VkDescriptorSetLayout m_orientation_desc_set_layout = VK_NULL_HANDLE;
+  VkDescriptorPool m_orientation_desc_pool = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> m_orientation_desc_sets;
+  VkPipelineLayout m_orientation_pipeline_layout = VK_NULL_HANDLE;
+  VkPipeline m_orientation_pipeline = VK_NULL_HANDLE;
+  // ComputeDescriptor
 
   void *m_input_image_ptr = nullptr;
+  std::vector<void *> m_output_sift_ptr;
 
   VkFence m_fence = VK_NULL_HANDLE;
 };
