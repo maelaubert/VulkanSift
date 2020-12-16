@@ -1,7 +1,7 @@
 #version 450
 
-#define SIFT_NB_HIST 4
-#define SIFT_NB_ORI 8
+#define NB_HIST 4
+#define NB_ORI 8
 
 struct SIFT_Feat {
   float x;
@@ -13,6 +13,7 @@ struct SIFT_Feat {
   float scale_factor;
   float theta;
   float value;
+  uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
 };
 
 layout(local_size_x = 8, local_size_y = 8) in;

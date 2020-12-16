@@ -20,7 +20,7 @@ struct SIFT_Feature
   float scale_factor;
   float theta;
   float value;
-  // uint8_t feature_vector[SIFT_NB_HIST * SIFT_NB_HIST * SIFT_NB_ORI];
+  uint8_t feature_vector[SIFT_NB_HIST * SIFT_NB_HIST * SIFT_NB_ORI];
 };
 
 } // namespace VulkanSIFT

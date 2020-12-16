@@ -88,7 +88,7 @@ class SiftDetector
   // Buffers
   VulkanUtils::Buffer m_input_image_staging_in_buffer;
   std::vector<VulkanUtils::Buffer> m_sift_staging_out_buffers;
-  uint32_t m_sift_buff_max_elem = 50000;
+  uint32_t m_sift_buff_max_elem = 20000;
   std::vector<VulkanUtils::Buffer> m_sift_keypoints_buffers;
   std::vector<VulkanUtils::Buffer> m_indispatch_buffers;
 
@@ -129,6 +129,11 @@ class SiftDetector
   VkPipelineLayout m_orientation_pipeline_layout = VK_NULL_HANDLE;
   VkPipeline m_orientation_pipeline = VK_NULL_HANDLE;
   // ComputeDescriptor
+  VkDescriptorSetLayout m_descriptor_desc_set_layout = VK_NULL_HANDLE;
+  VkDescriptorPool m_descriptor_desc_pool = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> m_descriptor_desc_sets;
+  VkPipelineLayout m_descriptor_pipeline_layout = VK_NULL_HANDLE;
+  VkPipeline m_descriptor_pipeline = VK_NULL_HANDLE;
 
   void *m_input_image_ptr = nullptr;
   std::vector<void *> m_output_sift_ptr;

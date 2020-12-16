@@ -631,7 +631,88 @@ bool SiftDetector::initDescriptors()
       vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
     }
   }
+  ///////////////////////////////////////////////////
+  // Descriptors for ComputeDescriptors pipeline
+  ///////////////////////////////////////////////////
+  {
+    VkDescriptorSetLayoutBinding octave_image_layout_binding{.binding = 0,
+                                                             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             .descriptorCount = 1,
+                                                             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                             .pImmutableSamplers = nullptr};
+    VkDescriptorSetLayoutBinding sift_buffer_layout_binding{.binding = 1,
+                                                            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            .descriptorCount = 1,
+                                                            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                            .pImmutableSamplers = nullptr};
 
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{octave_image_layout_binding, sift_buffer_layout_binding};
+
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = bindings.size(), .pBindings = bindings.data()};
+
+    if (vkCreateDescriptorSetLayout(m_device, &layout_info, nullptr, &m_descriptor_desc_set_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeDescriptors descriptor set layout");
+      return false;
+    }
+
+    // Create descriptor pool to allocate descriptor sets (generic)
+    std::array<VkDescriptorPoolSize, 2> pool_sizes;
+    pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave};
+    pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
+    VkDescriptorPoolCreateInfo descriptor_pool_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                    .maxSets = m_nb_octave,
+                                                    .poolSizeCount = pool_sizes.size(),
+                                                    .pPoolSizes = pool_sizes.data()};
+    if (vkCreateDescriptorPool(m_device, &descriptor_pool_info, nullptr, &m_descriptor_desc_pool) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeDescriptors descriptor pool");
+      return false;
+    }
+
+    // Create descriptor sets that can be bound in command buffer
+    std::vector<VkDescriptorSetLayout> layouts{m_nb_octave, m_descriptor_desc_set_layout};
+    m_descriptor_desc_sets.resize(m_nb_octave);
+    VkDescriptorSetAllocateInfo alloc_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                           .descriptorPool = m_descriptor_desc_pool,
+                                           .descriptorSetCount = m_nb_octave,
+                                           .pSetLayouts = layouts.data()};
+
+    if (vkAllocateDescriptorSets(m_device, &alloc_info, m_descriptor_desc_sets.data()) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to allocate ComputeDescriptors descriptor set");
+      return false;
+    }
+
+    // Write descriptor sets
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      VkDescriptorImageInfo octave_input_image_info{
+          .sampler = VK_NULL_HANDLE, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorBufferInfo sift_buffer_info{.buffer = m_sift_keypoints_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      std::array<VkWriteDescriptorSet, 2> descriptor_writes;
+      descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_descriptor_desc_sets[i],
+                              .dstBinding = 0,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                              .pImageInfo = &octave_input_image_info,
+                              .pBufferInfo = nullptr,
+                              .pTexelBufferView = nullptr};
+      descriptor_writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_descriptor_desc_sets[i],
+                              .dstBinding = 1,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              .pImageInfo = nullptr,
+                              .pBufferInfo = &sift_buffer_info,
+                              .pTexelBufferView = nullptr};
+      vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
+    }
+  }
   return true;
 }
 
@@ -802,6 +883,44 @@ bool SiftDetector::initPipelines()
       return false;
     }
     vkDestroyShaderModule(m_device, orientation_shader_module, nullptr);
+  }
+  //////////////////////////////////////
+  // Setup ComputeDescriptors pipeline
+  //////////////////////////////////////
+  {
+    VkShaderModule descriptor_shader_module;
+    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeDescriptors.comp.spv", &descriptor_shader_module);
+
+    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t)};
+    VkPipelineLayoutCreateInfo descriptor_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                               .setLayoutCount = 1,
+                                                               .pSetLayouts = &m_descriptor_desc_set_layout,
+                                                               .pushConstantRangeCount = 1,
+                                                               .pPushConstantRanges = &push_constant_range};
+    if (vkCreatePipelineLayout(m_device, &descriptor_pipeline_layout_info, nullptr, &m_descriptor_pipeline_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline layout");
+      return false;
+    }
+
+    VkPipelineShaderStageCreateInfo descriptor_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                     .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                     .module = descriptor_shader_module,
+                                                                     .pName = "main"};
+
+    VkComputePipelineCreateInfo descriptor_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                                            .pNext = nullptr,
+                                                            .flags = 0,
+                                                            .stage = descriptor_pipeline_shader_stage,
+                                                            .layout = m_descriptor_pipeline_layout,
+                                                            .basePipelineHandle = VK_NULL_HANDLE,
+                                                            .basePipelineIndex = -1};
+    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &descriptor_pipeline_info, nullptr, &m_descriptor_pipeline) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline");
+      return false;
+    }
+    vkDestroyShaderModule(m_device, descriptor_shader_module, nullptr);
   }
   return true;
 }
@@ -1059,9 +1178,26 @@ bool SiftDetector::initCommandBuffer()
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     uint pushconst = m_octave_image_sizes[i].height;
-    vkCmdPushConstants(m_command_buffer, m_orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
+    vkCmdPushConstants(m_command_buffer, m_orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline_layout, 0, 1, &m_orientation_desc_sets[i], 0,
                             nullptr);
+    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0);
+    {
+      std::vector<VkBufferMemoryBarrier> buffer_barriers;
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+    }
+  }
+  endMarkerRegion(m_command_buffer);
+
+  beginMarkerRegion(m_command_buffer, "ComputeDescriptors");
+  vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline);
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    uint32_t pushconst = m_octave_image_sizes[i].height;
+    vkCmdPushConstants(m_command_buffer, m_descriptor_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
+    vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline_layout, 0, 1, &m_descriptor_desc_sets[i], 0, nullptr);
     vkCmdDispatchIndirect(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0);
     {
       std::vector<VkBufferMemoryBarrier> buffer_barriers;
@@ -1203,6 +1339,11 @@ void SiftDetector::terminate()
   VK_NULL_SAFE_DELETE(m_orientation_pipeline_layout, vkDestroyPipelineLayout(m_device, m_orientation_pipeline_layout, nullptr));
   VK_NULL_SAFE_DELETE(m_orientation_desc_pool, vkDestroyDescriptorPool(m_device, m_orientation_desc_pool, nullptr));
   VK_NULL_SAFE_DELETE(m_orientation_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_orientation_desc_set_layout, nullptr));
+  // ComputeDescriptor
+  VK_NULL_SAFE_DELETE(m_descriptor_pipeline, vkDestroyPipeline(m_device, m_descriptor_pipeline, nullptr));
+  VK_NULL_SAFE_DELETE(m_descriptor_pipeline_layout, vkDestroyPipelineLayout(m_device, m_descriptor_pipeline_layout, nullptr));
+  VK_NULL_SAFE_DELETE(m_descriptor_desc_pool, vkDestroyDescriptorPool(m_device, m_descriptor_desc_pool, nullptr));
+  VK_NULL_SAFE_DELETE(m_descriptor_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_descriptor_desc_set_layout, nullptr));
 
   // Destroy memory objects
   // Unmap before

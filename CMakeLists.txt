@@ -47,6 +47,7 @@ set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
     src/vulkansift/sift/shaders/ExtractKeypoints.comp
     src/vulkansift/sift/shaders/ComputeOrientation.comp
+    src/vulkansift/sift/shaders/ComputeDescriptors.comp
 )
 
 #####################################################################################
@@ -114,6 +115,8 @@ message("Examples will be built")
 find_package(OpenCV REQUIRED)
 # Add test executables
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp)
+target_compile_options(test_sift_detect PRIVATE "-O3")
+
 
 target_link_libraries(test_sift_detect vulkansift ${OpenCV_LIBS})
 endif()
