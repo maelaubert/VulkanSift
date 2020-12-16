@@ -185,7 +185,7 @@ bool SiftDetector::initMemory()
   {
     m_indispatch_buffers.resize(m_nb_octave);
     VkDeviceSize buffer_size = sizeof(uint32_t) * 3;
-    for (int i = 0; i < m_nb_octave; i++)
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_indispatch_buffers[i].create(m_device, m_physical_device, buffer_size,
                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
@@ -201,7 +201,7 @@ bool SiftDetector::initMemory()
   // Create buffer to store SIFT data
   {
     m_sift_keypoints_buffers.resize(m_nb_octave);
-    for (int i = 0; i < m_nb_octave; i++)
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_sift_keypoints_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -216,7 +216,7 @@ bool SiftDetector::initMemory()
   // Create staging buffer to send back SIFT data to CPU
   {
     m_sift_staging_out_buffers.resize(m_nb_octave);
-    for (int i = 0; i < m_nb_octave; i++)
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_sift_staging_out_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -418,7 +418,7 @@ bool SiftDetector::initDescriptors()
 
     if (vkAllocateDescriptorSets(m_device, &alloc_info, m_dog_desc_sets.data()) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate horizontal DifferenceOfGaussian descriptor set");
+      logError(LOG_TAG, "Failed to allocate DifferenceOfGaussian descriptor set");
       return false;
     }
 
@@ -507,7 +507,7 @@ bool SiftDetector::initDescriptors()
 
     if (vkAllocateDescriptorSets(m_device, &alloc_info, m_extractkpts_desc_sets.data()) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate horizontal DifferenceOfGaussian descriptor set");
+      logError(LOG_TAG, "Failed to allocate DifferenceOfGaussian descriptor set");
       return false;
     }
 
@@ -545,6 +545,88 @@ bool SiftDetector::initDescriptors()
                               .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                               .pImageInfo = nullptr,
                               .pBufferInfo = &indispatch_buffer_info,
+                              .pTexelBufferView = nullptr};
+      vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
+    }
+  }
+  ///////////////////////////////////////////////////
+  // Descriptors for ComputeOrientation pipeline
+  ///////////////////////////////////////////////////
+  {
+    VkDescriptorSetLayoutBinding octave_image_layout_binding{.binding = 0,
+                                                             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             .descriptorCount = 1,
+                                                             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                             .pImmutableSamplers = nullptr};
+    VkDescriptorSetLayoutBinding sift_buffer_layout_binding{.binding = 1,
+                                                            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            .descriptorCount = 1,
+                                                            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                            .pImmutableSamplers = nullptr};
+
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{octave_image_layout_binding, sift_buffer_layout_binding};
+
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = bindings.size(), .pBindings = bindings.data()};
+
+    if (vkCreateDescriptorSetLayout(m_device, &layout_info, nullptr, &m_orientation_desc_set_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeOrientation descriptor set layout");
+      return false;
+    }
+
+    // Create descriptor pool to allocate descriptor sets (generic)
+    std::array<VkDescriptorPoolSize, 2> pool_sizes;
+    pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave};
+    pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
+    VkDescriptorPoolCreateInfo descriptor_pool_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                    .maxSets = m_nb_octave,
+                                                    .poolSizeCount = pool_sizes.size(),
+                                                    .pPoolSizes = pool_sizes.data()};
+    if (vkCreateDescriptorPool(m_device, &descriptor_pool_info, nullptr, &m_orientation_desc_pool) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeOrientation descriptor pool");
+      return false;
+    }
+
+    // Create descriptor sets that can be bound in command buffer
+    std::vector<VkDescriptorSetLayout> layouts{m_nb_octave, m_orientation_desc_set_layout};
+    m_orientation_desc_sets.resize(m_nb_octave);
+    VkDescriptorSetAllocateInfo alloc_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                           .descriptorPool = m_orientation_desc_pool,
+                                           .descriptorSetCount = m_nb_octave,
+                                           .pSetLayouts = layouts.data()};
+
+    if (vkAllocateDescriptorSets(m_device, &alloc_info, m_orientation_desc_sets.data()) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to allocate ComputeOrientation descriptor set");
+      return false;
+    }
+
+    // Write descriptor sets
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      VkDescriptorImageInfo octave_input_image_info{
+          .sampler = VK_NULL_HANDLE, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorBufferInfo sift_buffer_info{.buffer = m_sift_keypoints_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      std::array<VkWriteDescriptorSet, 2> descriptor_writes;
+      descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_orientation_desc_sets[i],
+                              .dstBinding = 0,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                              .pImageInfo = &octave_input_image_info,
+                              .pBufferInfo = nullptr,
+                              .pTexelBufferView = nullptr};
+      descriptor_writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_orientation_desc_sets[i],
+                              .dstBinding = 1,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              .pImageInfo = nullptr,
+                              .pBufferInfo = &sift_buffer_info,
                               .pTexelBufferView = nullptr};
       vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
     }
@@ -683,6 +765,44 @@ bool SiftDetector::initPipelines()
     }
     vkDestroyShaderModule(m_device, extractkpts_shader_module, nullptr);
   }
+  //////////////////////////////////////
+  // Setup ComputeOrientation pipeline
+  //////////////////////////////////////
+  {
+    VkShaderModule orientation_shader_module;
+    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeOrientation.comp.spv", &orientation_shader_module);
+
+    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t)};
+    VkPipelineLayoutCreateInfo orientation_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                                .setLayoutCount = 1,
+                                                                .pSetLayouts = &m_orientation_desc_set_layout,
+                                                                .pushConstantRangeCount = 1,
+                                                                .pPushConstantRanges = &push_constant_range};
+    if (vkCreatePipelineLayout(m_device, &orientation_pipeline_layout_info, nullptr, &m_orientation_pipeline_layout) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeOrientation pipeline layout");
+      return false;
+    }
+
+    VkPipelineShaderStageCreateInfo orientation_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                      .module = orientation_shader_module,
+                                                                      .pName = "main"};
+
+    VkComputePipelineCreateInfo orientation_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                                             .pNext = nullptr,
+                                                             .flags = 0,
+                                                             .stage = orientation_pipeline_shader_stage,
+                                                             .layout = m_orientation_pipeline_layout,
+                                                             .basePipelineHandle = VK_NULL_HANDLE,
+                                                             .basePipelineIndex = -1};
+    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &orientation_pipeline_info, nullptr, &m_orientation_pipeline) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create ComputeOrientation pipeline");
+      return false;
+    }
+    vkDestroyShaderModule(m_device, orientation_shader_module, nullptr);
+  }
   return true;
 }
 
@@ -725,14 +845,15 @@ bool SiftDetector::initCommandBuffer()
 
   // Clear data
   beginMarkerRegion(m_command_buffer, "Clear data");
-  VkClearColorValue clear_color{0.0, 0.0, 0.0, 0.0};
+  VkClearColorValue clear_color{{0.0, 0.0, 0.0, 0.0}};
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkImageSubresourceRange range{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdClearColorImage(m_command_buffer, m_blur_temp_results[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 0);
     vkCmdFillBuffer(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
+    vkCmdFillBuffer(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -924,6 +1045,33 @@ bool SiftDetector::initCommandBuffer()
   }
   endMarkerRegion(m_command_buffer);
 
+  beginMarkerRegion(m_command_buffer, "ComputeOrientation");
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_indispatch_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_INDIRECT_COMMAND_READ_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+  }
+  vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline);
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    uint pushconst = m_octave_image_sizes[i].height;
+    vkCmdPushConstants(m_command_buffer, m_orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
+    vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline_layout, 0, 1, &m_orientation_desc_sets[i], 0,
+                            nullptr);
+    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0);
+    {
+      std::vector<VkBufferMemoryBarrier> buffer_barriers;
+      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+    }
+  }
+  endMarkerRegion(m_command_buffer);
+
   beginMarkerRegion(m_command_buffer, "CopySiftFeats");
   {
     std::vector<VkBufferMemoryBarrier> buffer_barriers;
@@ -1050,6 +1198,11 @@ void SiftDetector::terminate()
   VK_NULL_SAFE_DELETE(m_extractkpts_pipeline_layout, vkDestroyPipelineLayout(m_device, m_extractkpts_pipeline_layout, nullptr));
   VK_NULL_SAFE_DELETE(m_extractkpts_desc_pool, vkDestroyDescriptorPool(m_device, m_extractkpts_desc_pool, nullptr));
   VK_NULL_SAFE_DELETE(m_extractkpts_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_extractkpts_desc_set_layout, nullptr));
+  // ComputeOrientation
+  VK_NULL_SAFE_DELETE(m_orientation_pipeline, vkDestroyPipeline(m_device, m_orientation_pipeline, nullptr));
+  VK_NULL_SAFE_DELETE(m_orientation_pipeline_layout, vkDestroyPipelineLayout(m_device, m_orientation_pipeline_layout, nullptr));
+  VK_NULL_SAFE_DELETE(m_orientation_desc_pool, vkDestroyDescriptorPool(m_device, m_orientation_desc_pool, nullptr));
+  VK_NULL_SAFE_DELETE(m_orientation_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_orientation_desc_set_layout, nullptr));
 
   // Destroy memory objects
   // Unmap before

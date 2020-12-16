@@ -1,0 +1,138 @@
+#version 450
+
+#define SIFT_NB_HIST 4
+#define SIFT_NB_ORI 8
+
+#define NB_HIST_BINS 36
+#define LAMBDA_ORIENTATION 1.5f
+#define LOCAL_EXTREMA_THRESHOLD 0.8f
+#define PI 3.14159265358979323846
+
+struct SIFT_Feat {
+  float x;
+  float y;
+  uint orig_x;
+  uint orig_y;
+  uint index_scale;
+  float sigma;
+  float scale_factor;
+  float theta;
+  float value;
+};
+
+layout(local_size_x = 64) in;
+layout(r16, binding = 0) uniform image2D octave_input;
+layout(std430, binding = 1) buffer SIFT_buffer {
+    uint nb_elem;
+    SIFT_Feat data[];
+};
+
+layout(push_constant) uniform PushConst {
+  uint offset_y;
+} push_const;
+
+
+float getImVal(int scale_idx, int x, int y) {
+    return imageLoad(octave_input, ivec2(x, y + (scale_idx*push_const.offset_y))).r;
+}
+
+float fast_exp(float inp) {
+    float res = 1.f + (inp / 256.f);
+    res *= res;
+    res *= res;
+    res *= res;
+    res *= res;
+    res *= res;
+    res *= res;
+    res *= res;
+    res *= res;
+    return res;
+}
+
+void main() {
+    int idx = int(gl_GlobalInvocationID.x);
+    SIFT_Feat kp = data[idx];
+    //data[idx].theta = -5.f;
+
+    float scaled_lambda_ori = LAMBDA_ORIENTATION * (kp.sigma / kp.scale_factor);
+    int box_radius = int(round(3 * scaled_lambda_ori));
+
+    int array_length = (box_radius * 2 + 1) * (box_radius * 2 + 1);
+    float expf_scale = -1.f / (2.f * scaled_lambda_ori * scaled_lambda_ori);
+    int nb_data = 0;
+
+    float orientation_histogram[NB_HIST_BINS];
+    float tmp_histogram[NB_HIST_BINS];
+    for(int i=0; i<NB_HIST_BINS;i++) {
+        orientation_histogram[i] = 0.f;
+    }
+
+    // Fill orientation histogram
+    for (int delta_x = -box_radius; delta_x <= box_radius; delta_x++) {
+        for (int delta_y = -box_radius; delta_y <= box_radius; delta_y++) {
+            int grad_x_idx = int(round(kp.x)) + delta_x;
+            int grad_y_idx = int(round(kp.y)) + delta_y;
+            float gradX = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx+1, grad_y_idx) - getImVal(int(kp.index_scale), grad_x_idx-1, grad_y_idx));
+            float gradY = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx+1) - getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx-1));
+
+            float mag = fast_exp((delta_x * delta_x + delta_y + delta_y) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
+            float orientation = atan(gradY, gradX);
+            // Cap orientation in [0, 2xPI]
+            if(orientation<0) {
+                orientation += 2.f*PI;
+            }
+            else if(orientation > (2.f*PI)) {
+                orientation -= 2.f*PI;
+            }
+            int bin_index = int((orientation * float(NB_HIST_BINS) / (2.f * PI)) + 0.5f) % NB_HIST_BINS;
+            if (bin_index < 0) {
+                bin_index += NB_HIST_BINS;
+            }
+            else if (bin_index >= NB_HIST_BINS) {
+                bin_index -= NB_HIST_BINS;
+            }
+            orientation_histogram[bin_index] += mag;
+        }
+    }
+
+    // Smooth histogram
+    for(int i=0; i<NB_HIST_BINS;i++) {
+        tmp_histogram[i] = orientation_histogram[i];
+    }
+    for (int i = 0; i < NB_HIST_BINS; i++)
+    {
+        int m2 = ((i - 2) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
+        int m1 = ((i - 1) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
+        int p1 = ((i + 1) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
+        int p2 = ((i + 2) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
+        orientation_histogram[i] = (tmp_histogram[m2] + tmp_histogram[p2]) * (1.f / 16.f) + (tmp_histogram[m1] + tmp_histogram[p1]) * (4.f / 16.f) +
+                                tmp_histogram[i] * (6.f / 16.f);
+    }
+
+    // Compute principal orientation
+    float max_hist_value = orientation_histogram[0];
+    for (int i = 1; i < NB_HIST_BINS; i++) {
+        max_hist_value = orientation_histogram[i] > max_hist_value ? orientation_histogram[i] : max_hist_value;
+    }
+
+    for (int i = 0; i < NB_HIST_BINS; i++)
+    {
+        int prev_index = (i - 1 + NB_HIST_BINS) % NB_HIST_BINS;
+        int next_index = (i + 1) % NB_HIST_BINS;
+        if ((orientation_histogram[i] > LOCAL_EXTREMA_THRESHOLD * max_hist_value) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
+            (orientation_histogram[i] > orientation_histogram[next_index]))
+        {
+
+          float local_max_hist_idx = float(i) + ((orientation_histogram[prev_index] - orientation_histogram[next_index]) /
+                                    (orientation_histogram[prev_index] - (2.f * orientation_histogram[i]) + orientation_histogram[next_index]));
+
+          float keypoint_orientation = (local_max_hist_idx + 0.5f) * (2.f * PI) / float(NB_HIST_BINS);
+          // float keypoint_orientation = (2.f*PI)- (local_max_hist_idx + 0.5f) * (2.f*PI) / static_cast<float>(NB_HIST_BINS);
+
+          // Add new keypoint with orientation
+          kp.theta = keypoint_orientation;
+        }
+    }
+
+    data[idx] = kp;
+}

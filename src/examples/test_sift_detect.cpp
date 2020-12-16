@@ -4,6 +4,42 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
+cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_Feature> kps, int width, int height)
+{
+
+  cv::Mat output_mat(height, width, CV_8U);
+
+  for (int i = 0; i < width * height; i++)
+  {
+    output_mat.data[i] = in_img[i];
+  }
+
+  cv::Mat output_mat_rgb(height, width, CV_8UC3);
+  output_mat.convertTo(output_mat_rgb, CV_8UC3);
+
+  cv::cvtColor(output_mat_rgb, output_mat_rgb, cv::COLOR_GRAY2BGR);
+
+  srand(time(NULL));
+
+  for (VulkanSIFT::SIFT_Feature kp : kps)
+  {
+    cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
+
+    int radius = kp.sigma;
+    cv::circle(output_mat_rgb, cv::Point(kp.orig_x, kp.orig_y), radius, color, 1);
+    float angle = kp.theta;
+    if (angle > 3.14f)
+    {
+      angle -= 2.f * 3.14f;
+    }
+
+    cv::Point orient(cosf(angle) * radius, sinf(angle) * radius);
+    cv::line(output_mat_rgb, cv::Point(kp.orig_x, kp.orig_y), cv::Point(kp.orig_x, kp.orig_y) + orient, color, 1);
+  }
+
+  return output_mat_rgb;
+}
+
 int main()
 {
 
@@ -54,10 +90,12 @@ int main()
     img1_grey.convertTo(draw_frame, CV_8UC3);
     cv::cvtColor(draw_frame, draw_frame, cv::COLOR_GRAY2BGR);
     // cv::copyTo(cv_frame_color, draw_frame, cv::Mat());
-    for (int i = 0; i < feat_vec.size(); i++)
+    /*for (int i = 0; i < feat_vec.size(); i++)
     {
       cv::circle(draw_frame, cv::Point(feat_vec[i].orig_x, feat_vec[i].orig_y), 3, cv::Scalar(0, 0, 255), 1);
-    }
+    }*/
+    draw_frame = getOrientedKeypointsImage(image1, feat_vec, width1, height1);
+
     cv::imshow("Test", draw_frame);
     cv::waitKey(30);
 
