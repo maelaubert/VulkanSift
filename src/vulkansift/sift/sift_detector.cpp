@@ -139,7 +139,7 @@ bool SiftDetector::initMemory()
     m_blur_temp_results.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R16_UNORM,
+      if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT,
                                          VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -155,7 +155,7 @@ bool SiftDetector::initMemory()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_octave_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 3),
-                                     VK_FORMAT_R16_SNORM, VK_IMAGE_TILING_OPTIMAL,
+                                     VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -171,7 +171,7 @@ bool SiftDetector::initMemory()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       if (!m_octave_DoG_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width,
-                                         m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R16_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+                                         m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
                                          // m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
                                          VK_IMAGE_USAGE_STORAGE_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -478,7 +478,7 @@ bool SiftDetector::initDescriptors()
 
     if (vkCreateDescriptorSetLayout(m_device, &layout_info, nullptr, &m_extractkpts_desc_set_layout) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to create DifferenceOfGaussian descriptor set layout");
+      logError(LOG_TAG, "Failed to create ExtractKeypoints descriptor set layout");
       return false;
     }
 
@@ -493,7 +493,7 @@ bool SiftDetector::initDescriptors()
                                                     .pPoolSizes = pool_sizes.data()};
     if (vkCreateDescriptorPool(m_device, &descriptor_pool_info, nullptr, &m_extractkpts_desc_pool) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to create DifferenceOfGaussian descriptor pool");
+      logError(LOG_TAG, "Failed to create ExtractKeypoints descriptor pool");
       return false;
     }
 
@@ -507,7 +507,7 @@ bool SiftDetector::initDescriptors()
 
     if (vkAllocateDescriptorSets(m_device, &alloc_info, m_extractkpts_desc_sets.data()) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate DifferenceOfGaussian descriptor set");
+      logError(LOG_TAG, "Failed to allocate ExtractKeypoints descriptor set");
       return false;
     }
 
@@ -1221,8 +1221,8 @@ bool SiftDetector::initCommandBuffer()
   }
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkBufferCopy orb_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_sift_buff_max_elem + sizeof(uint32_t)};
-    vkCmdCopyBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &orb_copy_region);
+    VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_sift_buff_max_elem + sizeof(uint32_t)};
+    vkCmdCopyBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &sift_copy_region);
   }
   {
     std::vector<VkBufferMemoryBarrier> buffer_barriers;
@@ -1299,8 +1299,8 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
   int vec_offset = 0;
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    SIFT_Feature *orb_feats_ptr = (SIFT_Feature *)((uint32_t *)(m_output_sift_ptr[i]) + 1);
-    memcpy(sift_feats.data() + vec_offset, orb_feats_ptr, sizeof(SIFT_Feature) * nb_feat_per_octave[i]);
+    SIFT_Feature *sift_feats_ptr = (SIFT_Feature *)((uint32_t *)(m_output_sift_ptr[i]) + 1);
+    memcpy(sift_feats.data() + vec_offset, sift_feats_ptr, sizeof(SIFT_Feature) * nb_feat_per_octave[i]);
     vec_offset += nb_feat_per_octave[i];
   }
 

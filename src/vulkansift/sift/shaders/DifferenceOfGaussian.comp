@@ -1,9 +1,9 @@
 #version 450
 
 layout(local_size_x = 8, local_size_y = 8) in;
-layout(r16, binding = 0) uniform image2D img_input;
+layout(r32f, binding = 0) uniform image2D img_input;
 //layout(rgba32f, binding = 1) uniform image2D img_output;
-layout(r16, binding = 1) uniform image2D img_output;
+layout(r32f, binding = 1) uniform image2D img_output;
 
 
 const float kernel[4] = {0.216106, 0.190713, 0.131075, 0.0701593};

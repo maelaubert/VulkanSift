@@ -30,6 +30,7 @@ set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.cpp
     src/vulkansift/vulkan_instance.cpp
     src/vulkansift/sift/sift_detector.cpp
+    src/vulkansift/sift/sift_matcher.cpp
     src/vulkansift/viz/vulkan_viewer.cpp
     src/vulkansift/utils/vulkan_utils.cpp
     src/vulkansift/utils/vulkan_loader.cpp
@@ -48,6 +49,8 @@ set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/sift/shaders/ExtractKeypoints.comp
     src/vulkansift/sift/shaders/ComputeOrientation.comp
     src/vulkansift/sift/shaders/ComputeDescriptors.comp
+
+    src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
 )
 
 #####################################################################################
@@ -116,9 +119,14 @@ find_package(OpenCV REQUIRED)
 # Add test executables
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp)
 target_compile_options(test_sift_detect PRIVATE "-O3")
-
-
 target_link_libraries(test_sift_detect vulkansift ${OpenCV_LIBS})
+
+add_executable(test_sift_match src/examples/test_sift_match.cpp)
+target_compile_options(test_sift_match PRIVATE "-O3")
+target_link_libraries(test_sift_match vulkansift ${OpenCV_LIBS})
+
+
+
 endif()
 
 if(VULKANSIFT_BUILD_PERFS)

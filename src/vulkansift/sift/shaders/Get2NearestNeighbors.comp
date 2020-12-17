@@ -1,0 +1,100 @@
+#version 450
+
+#define NB_HIST 4
+#define NB_ORI 8
+
+struct SIFT_Feat {
+  float x;
+  float y;
+  uint orig_x;
+  uint orig_y;
+  uint index_scale;
+  float sigma;
+  float scale_factor;
+  float theta;
+  float value;
+  uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
+};
+
+struct SIFT_2NN_Info
+{
+  uint idx_a;
+  uint idx_b1;
+  uint idx_b2;
+  float dist_ab1;
+  float dist_ab2;
+};
+
+layout(local_size_x = 1) in;
+layout(std430, binding = 0) buffer SIFT_buffer_A {
+    uint nb_elem;
+    SIFT_Feat data[];
+} sift_a_buf;
+layout(std430, binding = 1) buffer SIFT_buffer_B {
+    uint nb_elem;
+    SIFT_Feat data[];
+} sift_b_buf;
+layout(std430, binding = 2) buffer dist_buffer {
+    SIFT_2NN_Info data[];
+} dist_buf;
+
+float compute_dist(SIFT_Feat feat_a, SIFT_Feat feat_b) {
+    float dist = 0.f;
+    for(int i=0; i<((NB_HIST*NB_HIST*NB_ORI)/4); i++) {
+        for(int j=0; j<4;j++) {
+            uint a_elem = (feat_a.feature_vector[i]&(255<<(j*8)))>>(j*8);
+            uint b_elem = (feat_b.feature_vector[i]&(255<<(j*8)))>>(j*8);
+            //dist += pow(float(a_elem-b_elem),2.f);
+            dist += (a_elem-b_elem)*(a_elem-b_elem);
+        }
+    }
+    return sqrt(dist);
+}
+
+void main() {
+    int a_idx = int(gl_GlobalInvocationID.x);
+    SIFT_Feat feat_a = sift_a_buf.data[a_idx];
+    
+    float first_best_distance;
+    uint first_best_idx;
+    float second_best_distance;
+    uint second_best_idx;
+
+    float dist_0 = compute_dist(feat_a, sift_b_buf.data[0]);
+    float dist_1 = compute_dist(feat_a, sift_b_buf.data[1]);
+
+    if(dist_0<dist_1) {
+        first_best_distance = dist_0;
+        first_best_idx = 0;
+        second_best_distance = dist_1;
+        second_best_idx = 1;
+    }
+    else {
+        first_best_distance = dist_1;
+        first_best_idx = 1;
+        second_best_distance = dist_0;
+        second_best_idx = 0;
+    }
+
+    for(int b_idx = 2; b_idx<sift_b_buf.nb_elem;b_idx++) {
+        SIFT_Feat feat_b = sift_b_buf.data[b_idx];
+
+        float dist = compute_dist(feat_a, feat_b);
+        if(dist < first_best_distance) {
+            second_best_distance = first_best_distance;
+            second_best_idx = first_best_idx;
+            first_best_distance = dist;
+            first_best_idx = b_idx;
+        }
+        else if(dist < second_best_distance) {
+            second_best_distance = dist;
+            second_best_idx = b_idx;
+        }
+    }
+
+    dist_buf.data[a_idx].idx_a = a_idx;
+    dist_buf.data[a_idx].idx_b1 = first_best_idx;
+    dist_buf.data[a_idx].idx_b2 = second_best_idx;
+    dist_buf.data[a_idx].dist_ab1 = first_best_distance;
+    dist_buf.data[a_idx].dist_ab2 = second_best_distance;
+}

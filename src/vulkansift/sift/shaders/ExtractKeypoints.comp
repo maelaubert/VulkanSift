@@ -17,7 +17,7 @@ struct SIFT_Feat {
 };
 
 layout(local_size_x = 8, local_size_y = 8) in;
-layout(r16, binding = 0) uniform image2D dog_input;
+layout(r32f, binding = 0) uniform image2D dog_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
     SIFT_Feat data[];

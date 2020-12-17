@@ -57,16 +57,16 @@ class SiftDetector
   // float soft_dog_threshold = 0.0039;//dog_threshold * 0.5f;
   // float soft_dog_threshold = dog_threshold * 0.5f;
 
-  uint32_t m_kp_refinement_nb_steps = 5;
+  // uint32_t m_kp_refinement_nb_steps = 5;
   float m_kp_edge_threshold = 10.f;
-  float m_min_distance_to_border = 1.f;
+  // float m_min_distance_to_border = 1.f;
   // Parameters for keypoints orientation computation
-  float m_lambda_orientation = 1.5f;
-  uint32_t m_nb_bins = 36;
-  float m_local_extrema_threshold = 0.8f;
+  // float m_lambda_orientation = 1.5f;
+  // uint32_t m_nb_bins = 36;
+  // float m_local_extrema_threshold = 0.8f;
   // Parameters for SIFT feature computation
-  float m_lambda_descriptor = 6.f;
-  float m_l2_norm_threshold = 0.2f;
+  // float m_lambda_descriptor = 6.f;
+  // float m_l2_norm_threshold = 0.2f;
   ///////////////////////////////////////////////////////////////////////////////
 
   uint32_t m_image_width;

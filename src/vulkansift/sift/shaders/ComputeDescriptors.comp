@@ -21,7 +21,7 @@ struct SIFT_Feat {
 };
 
 layout(local_size_x = 64) in;
-layout(r16, binding = 0) uniform image2D octave_input;
+layout(r32f, binding = 0) uniform image2D octave_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
     SIFT_Feat data[];
