@@ -105,15 +105,25 @@ bool createShaderModule(VkDevice device, const char *shader_file_path, VkShaderM
 // IMAGE
 ////////////////////////////////////////////////////////////////////////
 bool Image::create(VkDevice device, VkPhysicalDevice physical_device, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                   VkImageUsageFlags usage, VkMemoryPropertyFlags memory_properties)
+                   VkImageUsageFlags usage, VkMemoryPropertyFlags memory_properties, uint32_t array_nb_layer)
 {
+  if (array_nb_layer > 0)
+  {
+    m_is_array = true;
+    m_nb_layer = array_nb_layer;
+  }
+  else
+  {
+    m_nb_layer = 1;
+  }
+
   // Create vkImage instance
   VkImageCreateInfo image_info{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                                .imageType = VK_IMAGE_TYPE_2D,
                                .format = format,
                                .extent = {width, height, 1},
                                .mipLevels = 1,
-                               .arrayLayers = 1,
+                               .arrayLayers = m_nb_layer,
                                .samples = VK_SAMPLE_COUNT_1_BIT,
                                .tiling = tiling,
                                .usage = usage,
@@ -171,9 +181,9 @@ bool Image::create(VkDevice device, VkPhysicalDevice physical_device, uint32_t w
   VkImageViewCreateInfo image_view_create_info{
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
       .image = m_image,
-      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .viewType = m_is_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D,
       .format = format,
-      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}};
+      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_nb_layer}};
   if (vkCreateImageView(device, &image_view_create_info, nullptr, &m_image_view) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to create the image view");
@@ -188,25 +198,6 @@ bool Image::create(VkDevice device, VkPhysicalDevice physical_device, uint32_t w
   return true;
 }
 
-void Image::registerBarrier(VkCommandBuffer command_buffer, VkAccessFlags dst_access_mask, VkImageLayout dst_layout, VkPipelineStageFlags dst_stage_mask)
-{
-  VkImageMemoryBarrier barrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .srcAccessMask = m_image_access_mask,
-      .dstAccessMask = dst_access_mask,
-      .oldLayout = m_image_layout,
-      .newLayout = dst_layout,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = m_image,
-      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}};
-  vkCmdPipelineBarrier(command_buffer, m_image_stage_mask, dst_stage_mask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-  m_image_access_mask = dst_access_mask;
-  m_image_layout = dst_layout;
-  m_image_stage_mask = dst_stage_mask;
-}
-
 VkImageMemoryBarrier Image::getImageMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask, VkImageLayout dst_layout)
 {
   VkImageMemoryBarrier barrier{
@@ -218,7 +209,7 @@ VkImageMemoryBarrier Image::getImageMemoryBarrierAndUpdate(VkAccessFlags dst_acc
       .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
       .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
       .image = m_image,
-      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}};
+      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_nb_layer}};
   m_image_access_mask = dst_access_mask;
   m_image_layout = dst_layout;
   return barrier;
@@ -304,22 +295,6 @@ bool Buffer::create(VkDevice device, VkPhysicalDevice physical_device, VkDeviceS
   m_buffer_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
   return true;
-}
-
-void Buffer::registerBarrier(VkCommandBuffer command_buffer, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask)
-{
-  VkBufferMemoryBarrier barrier{.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                                .srcAccessMask = m_buffer_access_mask,
-                                .dstAccessMask = dst_access_mask,
-                                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                .buffer = m_buffer,
-                                .offset = 0,
-                                .size = m_buffer_size};
-  vkCmdPipelineBarrier(command_buffer, m_buffer_stage_mask, dst_stage_mask, 0, 0, nullptr, 1, &barrier, 0, nullptr);
-
-  m_buffer_access_mask = dst_access_mask;
-  m_buffer_stage_mask = dst_stage_mask;
 }
 
 VkBufferMemoryBarrier Buffer::getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask)

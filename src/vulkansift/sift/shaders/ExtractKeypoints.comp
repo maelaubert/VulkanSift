@@ -17,7 +17,7 @@ struct SIFT_Feat {
 };
 
 layout(local_size_x = 8, local_size_y = 8) in;
-layout(r32f, binding = 0) uniform image2D dog_input;
+layout(r32f, binding = 0) uniform image2DArray dog_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
     SIFT_Feat data[];
@@ -29,7 +29,6 @@ layout(std430, binding = 2) buffer IndispatchBuffer {
 };
 
 layout(push_constant) uniform PushConst {
-  uint offset_y;
   float scale_factor;
   float sigma_multiplier;
   float soft_dog_threshold;
@@ -39,7 +38,7 @@ layout(push_constant) uniform PushConst {
 
 
 float getVal(int scale_idx, int x, int y) {
-    return imageLoad(dog_input, ivec2(x, y + (scale_idx*push_const.offset_y))).r;
+    return imageLoad(dog_input, ivec3(x, y, scale_idx)).r;
 }
 void main() {
 

@@ -141,7 +141,7 @@ bool SiftDetector::initMemory()
     {
       if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT,
                                          VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1))
       {
         logError(LOG_TAG, "Failed to create blur temporary result image.");
         return false;
@@ -154,10 +154,10 @@ bool SiftDetector::initMemory()
     m_octave_images.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_octave_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 3),
-                                     VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+      if (!m_octave_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT,
+                                     VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_nb_scale_per_oct + 3))
       {
         logError(LOG_TAG, "Failed to create octave image.");
         return false;
@@ -170,10 +170,10 @@ bool SiftDetector::initMemory()
     m_octave_DoG_images.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_octave_DoG_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width,
-                                         m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
-                                         // m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
-                                         VK_IMAGE_USAGE_STORAGE_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+      if (!m_octave_DoG_images[i].create(
+              m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+              // m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+              VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_nb_scale_per_oct + 2))
       {
         logError(LOG_TAG, "Failed to create DoG octave image.");
         return false;
@@ -596,7 +596,7 @@ bool SiftDetector::initDescriptors()
     }
 
     // Create descriptor pool to allocate descriptor sets (generic)
-    std::array<VkDescriptorPoolSize, 2> pool_sizes;
+    std::array<VkDescriptorPoolSize, 3> pool_sizes;
     pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave};
     pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
     pool_sizes[2] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
@@ -756,7 +756,6 @@ struct GaussianBlurPushConsts
 
 struct ExtractKeypointsPushConsts
 {
-  uint32_t offset_y_per_scale;
   float scale_factor;
   float sigma_multiplier;
   float soft_dog_threshold;
@@ -809,13 +808,11 @@ bool SiftDetector::initPipelines()
   {
     VkShaderModule dog_shader_module;
     VulkanUtils::Shader::createShaderModule(m_device, "shaders/DifferenceOfGaussian.comp.spv", &dog_shader_module);
-
-    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t)};
     VkPipelineLayoutCreateInfo dog_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                         .setLayoutCount = 1,
                                                         .pSetLayouts = &m_dog_desc_set_layout,
-                                                        .pushConstantRangeCount = 1,
-                                                        .pPushConstantRanges = &push_constant_range};
+                                                        .pushConstantRangeCount = 0,
+                                                        .pPushConstantRanges = nullptr};
     if (vkCreatePipelineLayout(m_device, &dog_pipeline_layout_info, nullptr, &m_dog_pipeline_layout) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to create DifferenceOfGaussian pipeline layout");
@@ -883,13 +880,11 @@ bool SiftDetector::initPipelines()
   {
     VkShaderModule orientation_shader_module;
     VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeOrientation.comp.spv", &orientation_shader_module);
-
-    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t)};
     VkPipelineLayoutCreateInfo orientation_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                                 .setLayoutCount = 1,
                                                                 .pSetLayouts = &m_orientation_desc_set_layout,
-                                                                .pushConstantRangeCount = 1,
-                                                                .pPushConstantRanges = &push_constant_range};
+                                                                .pushConstantRangeCount = 0,
+                                                                .pPushConstantRanges = nullptr};
     if (vkCreatePipelineLayout(m_device, &orientation_pipeline_layout_info, nullptr, &m_orientation_pipeline_layout) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to create ComputeOrientation pipeline layout");
@@ -921,13 +916,11 @@ bool SiftDetector::initPipelines()
   {
     VkShaderModule descriptor_shader_module;
     VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeDescriptors.comp.spv", &descriptor_shader_module);
-
-    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t)};
     VkPipelineLayoutCreateInfo descriptor_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                                .setLayoutCount = 1,
                                                                .pSetLayouts = &m_descriptor_desc_set_layout,
-                                                               .pushConstantRangeCount = 1,
-                                                               .pPushConstantRanges = &push_constant_range};
+                                                               .pushConstantRangeCount = 0,
+                                                               .pPushConstantRanges = nullptr};
     if (vkCreatePipelineLayout(m_device, &descriptor_pipeline_layout_info, nullptr, &m_descriptor_pipeline_layout) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline layout");
@@ -999,8 +992,11 @@ bool SiftDetector::initCommandBuffer()
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdClearColorImage(m_command_buffer, m_blur_temp_results[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
+    range.layerCount = m_nb_scale_per_oct + 3;
+    vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
+    range.layerCount = m_nb_scale_per_oct + 2;
+    vkCmdClearColorImage(m_command_buffer, m_octave_DoG_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 0);
     vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
     vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
@@ -1078,10 +1074,8 @@ bool SiftDetector::initCommandBuffer()
     else
     {
       // Downscale previous octave image to get (Octave i,Scale i)
-      VkImageBlit region{.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
-                         .srcOffsets = {{0, (int32_t)(m_octave_image_sizes[oct_i - 1].height * m_nb_scale_per_oct), 0},
-                                        {(int32_t)m_octave_image_sizes[oct_i - 1].width,
-                                         (int32_t)(m_octave_image_sizes[oct_i - 1].height * (m_nb_scale_per_oct + 1)), 1}},
+      VkImageBlit region{.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = m_nb_scale_per_oct, .layerCount = 1},
+                         .srcOffsets = {{0, 0, 0}, {(int32_t)m_octave_image_sizes[oct_i - 1].width, (int32_t)m_octave_image_sizes[oct_i - 1].height, 1}},
                          .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
                          .dstOffsets = {{0, 0, 0}, {(int32_t)m_octave_image_sizes[oct_i].width, (int32_t)m_octave_image_sizes[oct_i].height, 1}}};
       vkCmdBlitImage(m_command_buffer, m_octave_images[oct_i - 1].getImage(), VK_IMAGE_LAYOUT_GENERAL, m_octave_images[oct_i].getImage(),
@@ -1106,7 +1100,7 @@ bool SiftDetector::initCommandBuffer()
         vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                              image_barriers.size(), image_barriers.data());
       }
-      GaussianBlurPushConsts pc{0, sep_kernel_sigma, (scale_i - 1) * m_octave_image_sizes[oct_i].height};
+      GaussianBlurPushConsts pc{0, sep_kernel_sigma, (scale_i - 1)};
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
@@ -1118,7 +1112,7 @@ bool SiftDetector::initCommandBuffer()
                              image_barriers.size(), image_barriers.data());
       }
       pc.is_vertical = 1;
-      pc.offset_y = scale_i * m_octave_image_sizes[oct_i].height;
+      pc.offset_y = scale_i;
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
@@ -1142,10 +1136,8 @@ bool SiftDetector::initCommandBuffer()
   vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_dog_pipeline);
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    uint32_t y_offset = m_octave_image_sizes[i].height;
-    vkCmdPushConstants(m_command_buffer, m_dog_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &y_offset);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_dog_pipeline_layout, 0, 1, &m_dog_desc_sets[i], 0, nullptr);
-    vkCmdDispatch(m_command_buffer, m_octave_image_sizes[i].width / 8, (m_octave_image_sizes[i].height * (m_nb_scale_per_oct + 2)) / 8, 1);
+    vkCmdDispatch(m_command_buffer, m_octave_image_sizes[i].width / 8, m_octave_image_sizes[i].height / 8, m_nb_scale_per_oct + 2);
   }
   {
     std::vector<VkImageMemoryBarrier> image_barriers;
@@ -1175,7 +1167,6 @@ bool SiftDetector::initCommandBuffer()
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     ExtractKeypointsPushConsts pushconst;
-    pushconst.offset_y_per_scale = m_octave_image_sizes[i].height;
     pushconst.sigma_multiplier = powf(2.f, static_cast<float>(i)) * m_sigma_min;
     pushconst.scale_factor = powf(2.f, i) * m_scale_factor_min;
     pushconst.soft_dog_threshold = m_soft_dog_threshold;
@@ -1234,8 +1225,6 @@ bool SiftDetector::initCommandBuffer()
   vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline);
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    uint pushconst = m_octave_image_sizes[i].height;
-    vkCmdPushConstants(m_command_buffer, m_orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline_layout, 0, 1, &m_orientation_desc_sets[i], 0,
                             nullptr);
     vkCmdDispatchIndirect(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0);
@@ -1261,8 +1250,6 @@ bool SiftDetector::initCommandBuffer()
   }
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    uint32_t pushconst = m_octave_image_sizes[i].height;
-    vkCmdPushConstants(m_command_buffer, m_descriptor_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline_layout, 0, 1, &m_descriptor_desc_sets[i], 0, nullptr);
     vkCmdDispatchIndirect(m_command_buffer, m_indispatch_descriptors_buffers[i].getBuffer(), 0);
     {

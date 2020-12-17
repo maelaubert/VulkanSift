@@ -38,8 +38,7 @@ class Image
 {
   public:
   bool create(VkDevice device, VkPhysicalDevice physical_device, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-              VkImageUsageFlags usage, VkMemoryPropertyFlags memory_properties);
-  void registerBarrier(VkCommandBuffer command_buffer, VkAccessFlags dst_access_mask, VkImageLayout dst_layout, VkPipelineStageFlags dst_stage_mask);
+              VkImageUsageFlags usage, VkMemoryPropertyFlags memory_properties, uint32_t nb_layer = 0u);
   VkImageMemoryBarrier getImageMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask, VkImageLayout dst_layout);
   void destroy(VkDevice device);
 
@@ -54,8 +53,9 @@ class Image
   VkAccessFlags m_image_access_mask = 0;
   VkImageLayout m_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkPipelineStageFlags m_image_stage_mask = 0;
+  bool m_is_array = false;
+  uint32_t m_nb_layer = 1;
 };
-
 ////////////////////////////////////////////////////////////////////////
 // BUFFER
 ////////////////////////////////////////////////////////////////////////
@@ -63,7 +63,6 @@ class Buffer
 {
   public:
   bool create(VkDevice device, VkPhysicalDevice physical_device, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memory_properties);
-  void registerBarrier(VkCommandBuffer command_buffer, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask);
   VkBufferMemoryBarrier getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask);
   void destroy(VkDevice device);
 

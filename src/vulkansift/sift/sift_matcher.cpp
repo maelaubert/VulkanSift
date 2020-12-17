@@ -548,7 +548,7 @@ bool SiftMatcher::compute(const std::vector<SIFT_Feature> &sift_feats_a, const s
       matches_b.push_back(sift_feats_b[nn_res.idx_b1]);
     }
   }
-  logInfo(LOG_TAG, "%d matches found", matches_a.size());
+  logInfo(LOG_TAG, "%d matches found", int(matches_a.size()));
 
   return true;
 }
