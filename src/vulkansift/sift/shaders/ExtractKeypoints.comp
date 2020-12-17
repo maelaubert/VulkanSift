@@ -189,7 +189,8 @@ void main() {
                 float h22 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
                 float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
                     getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
-                float edgeness = (pow(h11, 2.f) + pow(h22, 2.f)) / ((h11 * h22) - (h12 * h12));
+
+                float edgeness = pow(h11+h22, 2.f) / ((h11 * h22) - (h12 * h12));
                 if (edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))
                 {
                     uint idx = atomicAdd(nb_elem, 1);

@@ -167,7 +167,7 @@ void main() {
             }
             else
             {
-                feat_val |= uint(work_feat_vect[(i*4)+j]);
+                feat_val |= uint(work_feat_vect[(i*4)+j])<<(8*j);
             }
         }
         kp.feature_vector[i] = feat_val;

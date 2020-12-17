@@ -90,7 +90,8 @@ class SiftDetector
   std::vector<VulkanUtils::Buffer> m_sift_staging_out_buffers;
   uint32_t m_sift_buff_max_elem = 20000;
   std::vector<VulkanUtils::Buffer> m_sift_keypoints_buffers;
-  std::vector<VulkanUtils::Buffer> m_indispatch_buffers;
+  std::vector<VulkanUtils::Buffer> m_indispatch_orientation_buffers;
+  std::vector<VulkanUtils::Buffer> m_indispatch_descriptors_buffers;
 
   ////////////////////
 

@@ -27,6 +27,11 @@ layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
     SIFT_Feat data[];
 };
+layout(std430, binding = 2) buffer IndispatchBuffer {
+    uint nb_x_group;
+    uint nb_y_group;
+    uint nb_z_group;
+};
 
 layout(push_constant) uniform PushConst {
   uint offset_y;
@@ -65,6 +70,8 @@ void main() {
     for(int i=0; i<NB_HIST_BINS;i++) {
         orientation_histogram[i] = 0.f;
     }
+
+    bool is_first = true;
 
     // Fill orientation histogram
     for (int delta_x = -box_radius; delta_x <= box_radius; delta_x++) {
@@ -118,19 +125,28 @@ void main() {
     {
         int prev_index = (i - 1 + NB_HIST_BINS) % NB_HIST_BINS;
         int next_index = (i + 1) % NB_HIST_BINS;
-        if ((orientation_histogram[i] > LOCAL_EXTREMA_THRESHOLD * max_hist_value) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
+        if ((orientation_histogram[i] >= LOCAL_EXTREMA_THRESHOLD * max_hist_value) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
             (orientation_histogram[i] > orientation_histogram[next_index]))
         {
 
-          float local_max_hist_idx = float(i) + ((orientation_histogram[prev_index] - orientation_histogram[next_index]) /
+            float local_max_hist_idx = float(i) + ((orientation_histogram[prev_index] - orientation_histogram[next_index]) /
                                     (orientation_histogram[prev_index] - (2.f * orientation_histogram[i]) + orientation_histogram[next_index]));
 
-          float keypoint_orientation = (local_max_hist_idx + 0.5f) * (2.f * PI) / float(NB_HIST_BINS);
-          // float keypoint_orientation = (2.f*PI)- (local_max_hist_idx + 0.5f) * (2.f*PI) / static_cast<float>(NB_HIST_BINS);
+            float keypoint_orientation = (local_max_hist_idx + 0.5f) * (2.f * PI) / float(NB_HIST_BINS);
 
-          // Add new keypoint with orientation
-          // TODO: add new keypoints instead of overwriting (possible to have multiple strong orientation at a single point)
-          data[idx].theta = keypoint_orientation;
+            if(is_first) {
+                data[idx].theta = keypoint_orientation;
+                is_first = false;
+            }
+            else {
+                // Add new keypoint with orientation
+                uint new_kpt_idx = atomicAdd(nb_elem, 1);
+                if (new_kpt_idx % 64 == 0) {
+                    atomicAdd(nb_x_group, 1);
+                }
+                data[new_kpt_idx] = data[idx];
+                data[new_kpt_idx].theta = keypoint_orientation;
+            }
         }
     }
 

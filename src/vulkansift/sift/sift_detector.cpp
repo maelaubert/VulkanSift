@@ -183,16 +183,31 @@ bool SiftDetector::initMemory()
 
   // Need IndirectDispatch buffers info for orientation and descriptor dispatch
   {
-    m_indispatch_buffers.resize(m_nb_octave);
+    m_indispatch_orientation_buffers.resize(m_nb_octave);
     VkDeviceSize buffer_size = sizeof(uint32_t) * 3;
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_indispatch_buffers[i].create(m_device, m_physical_device, buffer_size,
-                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+      if (!m_indispatch_orientation_buffers[i].create(m_device, m_physical_device, buffer_size,
+                                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
-        logError(LOG_TAG, "Failed to create indirect dispatch buffer.");
+        logError(LOG_TAG, "Failed to create orientation indirect dispatch buffer.");
+        return false;
+      }
+    }
+  }
+  {
+    m_indispatch_descriptors_buffers.resize(m_nb_octave);
+    VkDeviceSize buffer_size = sizeof(uint32_t) * 3;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      if (!m_indispatch_descriptors_buffers[i].create(m_device, m_physical_device, buffer_size,
+                                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+      {
+        logError(LOG_TAG, "Failed to create descriptors indirect dispatch buffer.");
         return false;
       }
     }
@@ -517,7 +532,7 @@ bool SiftDetector::initDescriptors()
       VkDescriptorImageInfo dog_input_image_info{
           .sampler = VK_NULL_HANDLE, .imageView = m_octave_DoG_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorBufferInfo sift_buffer_info{.buffer = m_sift_keypoints_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
-      VkDescriptorBufferInfo indispatch_buffer_info{.buffer = m_indispatch_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      VkDescriptorBufferInfo indispatch_buffer_info{.buffer = m_indispatch_orientation_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
       std::array<VkWriteDescriptorSet, 3> descriptor_writes;
       descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                               .dstSet = m_extractkpts_desc_sets[i],
@@ -563,8 +578,13 @@ bool SiftDetector::initDescriptors()
                                                             .descriptorCount = 1,
                                                             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
                                                             .pImmutableSamplers = nullptr};
+    VkDescriptorSetLayoutBinding indispatch_buffer_layout_binding{.binding = 2,
+                                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                  .descriptorCount = 1,
+                                                                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                  .pImmutableSamplers = nullptr};
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{octave_image_layout_binding, sift_buffer_layout_binding};
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{octave_image_layout_binding, sift_buffer_layout_binding, indispatch_buffer_layout_binding};
 
     VkDescriptorSetLayoutCreateInfo layout_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = bindings.size(), .pBindings = bindings.data()};
@@ -579,6 +599,7 @@ bool SiftDetector::initDescriptors()
     std::array<VkDescriptorPoolSize, 2> pool_sizes;
     pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave};
     pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
+    pool_sizes[2] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = m_nb_octave};
     VkDescriptorPoolCreateInfo descriptor_pool_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                                     .maxSets = m_nb_octave,
                                                     .poolSizeCount = pool_sizes.size(),
@@ -609,7 +630,8 @@ bool SiftDetector::initDescriptors()
       VkDescriptorImageInfo octave_input_image_info{
           .sampler = VK_NULL_HANDLE, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorBufferInfo sift_buffer_info{.buffer = m_sift_keypoints_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
-      std::array<VkWriteDescriptorSet, 2> descriptor_writes;
+      VkDescriptorBufferInfo indispatch_buffer_info{.buffer = m_indispatch_descriptors_buffers[i].getBuffer(), .offset = 0, .range = VK_WHOLE_SIZE};
+      std::array<VkWriteDescriptorSet, 3> descriptor_writes;
       descriptor_writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                               .dstSet = m_orientation_desc_sets[i],
                               .dstBinding = 0,
@@ -627,6 +649,15 @@ bool SiftDetector::initDescriptors()
                               .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                               .pImageInfo = nullptr,
                               .pBufferInfo = &sift_buffer_info,
+                              .pTexelBufferView = nullptr};
+      descriptor_writes[2] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                              .dstSet = m_orientation_desc_sets[i],
+                              .dstBinding = 2,
+                              .dstArrayElement = 0,
+                              .descriptorCount = 1,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              .pImageInfo = nullptr,
+                              .pBufferInfo = &indispatch_buffer_info,
                               .pTexelBufferView = nullptr};
       vkUpdateDescriptorSets(m_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
     }
@@ -971,8 +1002,8 @@ bool SiftDetector::initCommandBuffer()
     vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdClearColorImage(m_command_buffer, m_blur_temp_results[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
     vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 0);
-    vkCmdFillBuffer(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
-    vkCmdFillBuffer(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
+    vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
+    vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -1134,7 +1165,7 @@ bool SiftDetector::initCommandBuffer()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
-      buffer_barriers.push_back(m_indispatch_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+      buffer_barriers.push_back(m_indispatch_orientation_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
     }
     vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
                          buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
@@ -1164,15 +1195,41 @@ bool SiftDetector::initCommandBuffer()
   }
   endMarkerRegion(m_command_buffer);
 
+  // Copy one indispatch buffer to the other
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_indispatch_orientation_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_TRANSFER_READ_BIT));
+      buffer_barriers.push_back(m_indispatch_descriptors_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_TRANSFER_WRITE_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
+  }
+  for (uint32_t i = 0; i < m_nb_octave; i++)
+  {
+    VkBufferCopy region{.srcOffset = 0, .dstOffset = 0, .size = sizeof(uint32_t) * 3};
+    vkCmdCopyBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), m_indispatch_descriptors_buffers[i].getBuffer(), 1, &region);
+  }
+
   beginMarkerRegion(m_command_buffer, "ComputeOrientation");
   {
     std::vector<VkBufferMemoryBarrier> buffer_barriers;
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      buffer_barriers.push_back(m_indispatch_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_INDIRECT_COMMAND_READ_BIT));
+      buffer_barriers.push_back(m_indispatch_orientation_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_INDIRECT_COMMAND_READ_BIT));
     }
-    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr,
-                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_indispatch_descriptors_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, buffer_barriers.size(),
+                         buffer_barriers.data(), 0, nullptr);
   }
   vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline);
   for (uint32_t i = 0; i < m_nb_octave; i++)
@@ -1181,7 +1238,7 @@ bool SiftDetector::initCommandBuffer()
     vkCmdPushConstants(m_command_buffer, m_orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline_layout, 0, 1, &m_orientation_desc_sets[i], 0,
                             nullptr);
-    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0);
+    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0);
     {
       std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
@@ -1193,12 +1250,21 @@ bool SiftDetector::initCommandBuffer()
 
   beginMarkerRegion(m_command_buffer, "ComputeDescriptors");
   vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline);
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      buffer_barriers.push_back(m_indispatch_descriptors_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_INDIRECT_COMMAND_READ_BIT));
+    }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
+  }
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     uint32_t pushconst = m_octave_image_sizes[i].height;
     vkCmdPushConstants(m_command_buffer, m_descriptor_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline_layout, 0, 1, &m_descriptor_desc_sets[i], 0, nullptr);
-    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_buffers[i].getBuffer(), 0);
+    vkCmdDispatchIndirect(m_command_buffer, m_indispatch_descriptors_buffers[i].getBuffer(), 0);
     {
       std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
@@ -1360,14 +1426,16 @@ void SiftDetector::terminate()
     m_blur_temp_results[i].destroy(m_device);
     m_octave_images[i].destroy(m_device);
     m_octave_DoG_images[i].destroy(m_device);
-    m_indispatch_buffers[i].destroy(m_device);
+    m_indispatch_orientation_buffers[i].destroy(m_device);
+    m_indispatch_descriptors_buffers[i].destroy(m_device);
     m_sift_keypoints_buffers[i].destroy(m_device);
     m_sift_staging_out_buffers[i].destroy(m_device);
   }
   m_octave_images.clear();
   m_blur_temp_results.clear();
   m_octave_DoG_images.clear();
-  m_indispatch_buffers.clear();
+  m_indispatch_orientation_buffers.clear();
+  m_indispatch_descriptors_buffers.clear();
   m_sift_keypoints_buffers.clear();
   m_sift_staging_out_buffers.clear();
 

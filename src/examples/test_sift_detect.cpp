@@ -110,7 +110,7 @@ int main()
 
   ///////////////////////////
   // TEST MATCH
-  bool do_match = true;
+  bool do_match = false;
   if (do_match)
   {
     cv::Mat img1 = cv::imread("res/img1.ppm");
