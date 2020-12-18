@@ -22,6 +22,9 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
   m_image_width = image_width;
   m_image_height = image_height;
 
+  // m_nb_octave = roundf(logf(static_cast<float>(std::min(image_width * 2, image_height * 2))) / logf(2.f) - 2) + 1; // CV
+  m_nb_octave = std::max(floorf(log2f(static_cast<float>(std::min(image_width, image_height))) + 1 - 3), 1.f); // VLFEAT
+
   // Compute image sizes (per octave and scale)
   for (uint32_t oct_i = 0; oct_i < m_nb_octave; oct_i++)
   {
@@ -758,7 +761,6 @@ struct ExtractKeypointsPushConsts
 {
   float scale_factor;
   float sigma_multiplier;
-  float soft_dog_threshold;
   float dog_threshold;
   float edge_threshold;
 };
@@ -1043,7 +1045,9 @@ bool SiftDetector::initCommandBuffer()
                      &region, VK_FILTER_LINEAR);
 
       // Blur the first scale
-      float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in)) / m_scale_factor_min;
+      // float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in)) / m_scale_factor_min;
+      float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
+      logError(LOG_TAG, "First image sigma %f", sep_kernel_sigma);
 
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
@@ -1087,11 +1091,10 @@ bool SiftDetector::initCommandBuffer()
     for (uint32_t scale_i = 1; scale_i < m_nb_scale_per_oct + 3; scale_i++)
     {
       // Gaussian blur from one scale to the other
-      float prev_sigma =
-          powf(2.f, static_cast<float>(oct_i)) * m_sigma_min * powf(2.f, static_cast<float>(scale_i - 1) / static_cast<float>(m_nb_scale_per_oct));
-      float curr_sigma =
-          powf(2.f, static_cast<float>(oct_i)) * m_sigma_min * powf(2.f, static_cast<float>(scale_i) / static_cast<float>(m_nb_scale_per_oct));
-      float sep_kernel_sigma = sqrtf((curr_sigma * curr_sigma) - (prev_sigma * prev_sigma)) / (powf(2.f, static_cast<float>(oct_i)) * m_scale_factor_min);
+      float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
+      float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
+      float sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
+      logError(LOG_TAG, "Octave %d scale %d sigma= %f", oct_i, scale_i, sep_kernel_sigma);
       int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
       logError(LOG_TAG, "Kernel size %d", kernel_size);
 
@@ -1172,9 +1175,8 @@ bool SiftDetector::initCommandBuffer()
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     ExtractKeypointsPushConsts pushconst;
-    pushconst.sigma_multiplier = powf(2.f, static_cast<float>(i)) * m_sigma_min;
+    pushconst.sigma_multiplier = powf(2.f, 1.f / m_nb_scale_per_oct) * m_sigma_min;
     pushconst.scale_factor = powf(2.f, i) * m_scale_factor_min;
-    pushconst.soft_dog_threshold = m_soft_dog_threshold;
     pushconst.dog_threshold = m_dog_threshold;
     pushconst.edge_threshold = m_kp_edge_threshold;
     logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);

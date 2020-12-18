@@ -3,7 +3,7 @@
 #define NB_HIST 4
 #define NB_ORI 8
 
-#define LAMBDA_DESCRIPTOR 6.0f
+#define LAMBDA_DESCRIPTOR 3.0f
 #define L2_NORM_THRESHOLD 0.2f
 #define PI 3.14159265358979323846
 
@@ -31,37 +31,26 @@ float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
 }
 
-float fast_exp(float inp) {
-    float res = 1.f + (inp / 256.f);
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    return res;
-}
-
 void main() {
     int idx = int(gl_GlobalInvocationID.x);
     SIFT_Feat kp = data[idx];
 
+    int image_width = imageSize(octave_input).x;
+    int image_height = imageSize(octave_input).y;
+
     float scaled_lambda_desc = LAMBDA_DESCRIPTOR * (kp.sigma / kp.scale_factor);
-    float radius = sqrt(2.f) * scaled_lambda_desc;
+    float radius = sqrt(2.f) * scaled_lambda_desc *(NB_HIST+1) * 0.5;
     int int_radius = int(radius);
 
-    float keypoint_cos = cos(kp.theta);
-    float keypoint_sin = sin(kp.theta);
+    float keypoint_cos = cos(kp.theta)/scaled_lambda_desc;
+    float keypoint_sin = sin(kp.theta)/scaled_lambda_desc;
 
-    float expf_scale = -1.f / (2.f * scaled_lambda_desc * scaled_lambda_desc);
-    int arr_length = (int_radius * 2 + 1) * (int_radius * 2 + 1);
-    float work_feat_vect[NB_HIST * NB_HIST * NB_ORI];
-    for(int i=0; i<(NB_HIST * NB_HIST * NB_ORI);i++) {
+    float expf_scale = -1.f / (2.f * (NB_HIST/2) * (NB_HIST/2));
+    float work_feat_vect[NB_HIST*NB_HIST*NB_ORI];
+    for(int i=0; i<NB_HIST*NB_HIST*NB_ORI;i++) {
         work_feat_vect[i] = 0;
     }
-    for (int i = 0; i < (NB_HIST * NB_HIST * NB_ORI)/4; i++)
+    for (int i = 0; i < (NB_HIST*NB_HIST*NB_ORI)/4; i++)
     {
         kp.feature_vector[i] = 0;
     }
@@ -73,17 +62,14 @@ void main() {
             int idx_x = int(kp.x) + delta_x;
             int idx_y = int(kp.y) + delta_y;
 
-            // Rotate indexes by keypoint orientation
-            float temp_x = float(idx_x) - float(kp.x);
-            float temp_y = float(idx_y) - float(kp.y);
-
-            float oriented_x = keypoint_cos * temp_x + keypoint_sin * temp_y;
-            float oriented_y = keypoint_cos * temp_y - keypoint_sin * temp_x;
-            // Still inside patch after rotation
-            if (oriented_x > scaled_lambda_desc || oriented_y > scaled_lambda_desc)
-            {
+            if(idx_x<1 || idx_x>=(image_width-1) || idx_y<1 || idx_y>=(image_height-1)) {
                 continue;
             }
+
+            // Rotate indexes by keypoint orientation
+            float oriented_x = keypoint_cos * float(delta_x) + keypoint_sin * float(delta_y);
+            float oriented_y = keypoint_cos * float(delta_y) - keypoint_sin * float(delta_x);
+
             float gradX = 0.5f * (getImVal(int(kp.index_scale), idx_x+1, idx_y) - getImVal(int(kp.index_scale), idx_x-1, idx_y));
             float gradY = 0.5f * (getImVal(int(kp.index_scale), idx_x, idx_y+1) - getImVal(int(kp.index_scale), idx_x, idx_y-1));
             float orientation = atan(gradY,gradX)-kp.theta;
@@ -94,29 +80,33 @@ void main() {
             else if(orientation > (2.f*PI)) {
                 orientation -= 2.f*PI;
             }
-            float mag = fast_exp(expf_scale * ((temp_x * temp_x) + (temp_y * temp_y)))*sqrt((gradX*gradX)+(gradY*gradY));
+            float mag = exp(expf_scale * ((oriented_x * oriented_x) + (oriented_y * oriented_y)))*sqrt((gradX*gradX)+(gradY*gradY));
 
             // Compute histogram indexes
-            float fhist_x_idx = oriented_x * float(NB_HIST) / (2.f * scaled_lambda_desc) + (float(NB_HIST - 1) / 2.f);
-            float fhist_y_idx = oriented_y * float(NB_HIST) / (2.f * scaled_lambda_desc) + (float(NB_HIST - 1) / 2.f);
+            float fhist_x_idx = oriented_x + (NB_HIST/2) -0.5;
+            float fhist_y_idx = oriented_y + (NB_HIST/2) -0.5;
             float fbin_idx = orientation * float(NB_ORI) / (2.f * PI);
-
+            if (fhist_x_idx < 0 || fhist_x_idx>=NB_HIST || fhist_y_idx < 0 || fhist_y_idx>=NB_HIST)
+            {
+                continue;
+            }
             int hist_x_idx = int(floor(fhist_x_idx));
             int hist_y_idx = int(floor(fhist_y_idx));
 
             // Disperse contribution into the two nearest histograms and bins
-            for (int i = (0 > hist_x_idx ? 0 : hist_x_idx); i < ((hist_x_idx + 1) > NB_HIST ? (NB_HIST - 1) : (hist_x_idx + 1)); i++)
+            for (int i = hist_x_idx; i < hist_x_idx + 2; i++)
             {
-                for (int j = (0 > hist_y_idx ? 0 : hist_y_idx); j < ((hist_y_idx + 1) > NB_HIST ? (NB_HIST - 1) : (hist_y_idx + 1)); j++)
+                for (int j = hist_y_idx; j < hist_y_idx + 2; j++)
                 {
+                    if(i>= 0 && i<NB_HIST && j>=0 && j<NB_HIST) {
+                        int bin_idx_left = (int(orientation) % NB_ORI + NB_ORI) % NB_ORI;
+                        work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_left] +=
+                            (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) - fbin_idx)) * mag;
 
-                    int bin_idx_left = (int(orientation) % NB_ORI + NB_ORI) % NB_ORI;
-                    work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_left] +=
-                        (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) - fbin_idx)) * mag;
-
-                    int bin_idx_right = (int(orientation) % NB_ORI + NB_ORI + 1) % NB_ORI;
-                    work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_right] +=
-                        (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) + 1.f - fbin_idx)) * mag;
+                        int bin_idx_right = (int(orientation) % NB_ORI + NB_ORI + 1) % NB_ORI;
+                        work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_right] +=
+                            (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) + 1.f - fbin_idx)) * mag;
+                    }
                 }
             }
         }
@@ -146,11 +136,11 @@ void main() {
         eucliean_norm += (work_feat_vect[i] * work_feat_vect[i]);
     }
     eucliean_norm = sqrt(eucliean_norm);
-    for (int i = 0; i < (NB_HIST * NB_HIST * NB_ORI)/4; i++)
+    for (int i = 0; i < (NB_HIST*NB_HIST*NB_ORI)/4; i++)
     {
         uint feat_val = 0;
         for(int j=0; j<4; j++) {
-            work_feat_vect[(i*4)+j] = work_feat_vect[(i*4)+j] * 512.f / eucliean_norm;
+            work_feat_vect[(i*4)+j] = work_feat_vect[(i*4)+j] * (512.f / eucliean_norm);
             if (work_feat_vect[(i*4)+j] < 0.f)
             {
                 // Do nothing since it's already 0

@@ -31,7 +31,6 @@ layout(std430, binding = 2) buffer IndispatchBuffer {
 layout(push_constant) uniform PushConst {
   float scale_factor;
   float sigma_multiplier;
-  float soft_dog_threshold;
   float dog_threshold;
   float edge_threshold;
 } push_const;
@@ -53,7 +52,7 @@ void main() {
 
         // Check 3x3x3 neighborhood (x/y/s)
         float center_value = getVal(s, x, y);
-        bool is_best_in_neighborhood = (abs(center_value)>push_const.soft_dog_threshold) && ((
+        bool is_best_in_neighborhood = (abs(center_value)>(push_const.dog_threshold*0.8f)) && ((
         //bool is_best_in_neighborhood = ((
                     center_value > getVal(s,   x-1,    y) &&
                     center_value > getVal(s,   x+1,    y) &&
@@ -170,7 +169,8 @@ void main() {
                     // No solution for this
                     break;
                 }
-                if (abs(offset_X) < 0.5f && abs(offset_Y) < 0.5f && abs(offset_S) < 0.5f)
+
+                if (abs(offset_X) < 0.6f && abs(offset_Y) < 0.6f && abs(offset_S) < 0.6f)
                 {
                     // If all offset under 0.6 we can stop here, extremum is at (pos x_idx,y_idx,scale_idx)
                     has_converged = true;
@@ -194,8 +194,8 @@ void main() {
                     float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
                         getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
 
-                    float edgeness = pow(h11+h22, 2.f) / ((h11 * h22) - (h12 * h12));
-                    if (edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))
+                    float edgeness = ((h11+h22)*(h11+h22)) / ((h11 * h22) - (h12 * h12));
+                    if ((edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))&&(edgeness>=0))
                     {
                         uint idx = atomicAdd(nb_elem, 1);
                         if (idx % 64 == 0) {
@@ -205,7 +205,7 @@ void main() {
                         data[idx].y = refined_y;
                         data[idx].index_scale = uint(round(float(refined_s)+offset_S));
                         data[idx].scale_factor = push_const.scale_factor;
-                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(refined_s+offset_S)/float(gl_NumWorkGroups.z));
+                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(refined_s+offset_S)/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
                         data[idx].theta = 0.f;
                         data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
                         data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));

@@ -41,21 +41,13 @@ class SiftDetector
   ///////////////////////////////////////////////////////////////////////////////
   /* SIFT PARAMETERS */
   // Parameters for scale space
-  uint32_t m_nb_octave = 5;
-  // int nb_oct = roundf(logf(static_cast<float>(MIN(width_in*2, height_in*2))) / logf(2.f) - 2) + 1;
-
+  uint32_t m_nb_octave = 4;
   uint32_t m_nb_scale_per_oct = 3;
-  float m_sigma_min = 0.8f;
+  float m_sigma_min = 1.6f;
   float m_sigma_in = 0.5f;
   float m_scale_factor_min = 0.5f;
   // Parameters for keypoints detection
-  float m_unscaled_dog_threshold = 0.015f;
-  // float unscaled_dog_threshold = 0.04f/3.f;
-  float m_dog_threshold = ((powf(2.f, 1.f / m_nb_scale_per_oct) - 1.f) / (powf(2.f, 1.f / 3.f) - 1.f)) * m_unscaled_dog_threshold;
-  // float dog_threshold = unscaled_dog_threshold;
-  float m_soft_dog_threshold = m_dog_threshold * 0.8f;
-  // float soft_dog_threshold = 0.0039;//dog_threshold * 0.5f;
-  // float soft_dog_threshold = dog_threshold * 0.5f;
+  float m_dog_threshold = 0.04f / 3;
 
   // uint32_t m_kp_refinement_nb_steps = 5;
   float m_kp_edge_threshold = 10.f;
