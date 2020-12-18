@@ -46,182 +46,188 @@ void main() {
     int y = int(gl_GlobalInvocationID.y);
     int s = int(gl_GlobalInvocationID.z+1);
 
-    // Check 3x3x3 neighborhood (x/y/s)
-    float center_value = getVal(s, x, y);
-    bool is_best_in_neighborhood = (abs(center_value)>push_const.soft_dog_threshold) && ((
-    //bool is_best_in_neighborhood = ((
-                 center_value > getVal(s,   x-1,    y) &&
-                 center_value > getVal(s,   x+1,    y) &&
-                 center_value > getVal(s,   x-1,    y-1) &&
-                 center_value > getVal(s,   x,      y-1) &&
-                 center_value > getVal(s,   x+1,    y-1) &&
-                 center_value > getVal(s,   x-1,    y+1) &&
-                 center_value > getVal(s,   x,      y+1) &&
-                 center_value > getVal(s,   x+1,    y+1) &&
-                 // Superior prev scale
-                 center_value > getVal(s-1, x-1,    y) &&
-                 center_value > getVal(s-1, x,      y) &&
-                 center_value > getVal(s-1, x+1,    y) &&
-                 center_value > getVal(s-1, x-1,    y-1) &&
-                 center_value > getVal(s-1, x,      y-1) &&
-                 center_value > getVal(s-1, x+1,    y-1) &&
-                 center_value > getVal(s-1, x-1,    y+1) &&
-                 center_value > getVal(s-1, x,      y+1) &&
-                 center_value > getVal(s-1, x+1,    y+1) &&
-                 // Superior next scale
-                 center_value > getVal(s+1, x-1,    y) &&
-                 center_value > getVal(s+1, x,      y) &&
-                 center_value > getVal(s+1, x+1,    y) &&
-                 center_value > getVal(s+1, x-1,    y-1) &&
-                 center_value > getVal(s+1, x,      y-1) &&
-                 center_value > getVal(s+1, x+1,    y-1) &&
-                 center_value > getVal(s+1, x-1,    y+1) &&
-                 center_value > getVal(s+1, x,      y+1) &&
-                 center_value > getVal(s+1, x+1,    y+1)) || // OR
-                // Inferior curr scale
-                (
-                 center_value < getVal(s,   x-1,    y) &&
-                 center_value < getVal(s,   x+1,    y) &&
-                 center_value < getVal(s,   x-1,    y-1) &&
-                 center_value < getVal(s,   x,      y-1) &&
-                 center_value < getVal(s,   x+1,    y-1) &&
-                 center_value < getVal(s,   x-1,    y+1) &&
-                 center_value < getVal(s,   x,      y+1) &&
-                 center_value < getVal(s,   x+1,    y+1) &&
-                 // Inferior prev scale
-                 center_value < getVal(s-1, x-1,    y) &&
-                 center_value < getVal(s-1, x,      y) &&
-                 center_value < getVal(s-1, x+1,    y) &&
-                 center_value < getVal(s-1, x-1,    y-1) &&
-                 center_value < getVal(s-1, x,      y-1) &&
-                 center_value < getVal(s-1, x+1,    y-1) &&
-                 center_value < getVal(s-1, x-1,    y+1) &&
-                 center_value < getVal(s-1, x,      y+1) &&
-                 center_value < getVal(s-1, x+1,    y+1) &&
-                 // Inferior next scale
-                 center_value < getVal(s+1, x-1,    y) &&
-                 center_value < getVal(s+1, x,      y) &&
-                 center_value < getVal(s+1, x+1,    y) &&
-                 center_value < getVal(s+1, x-1,    y-1) &&
-                 center_value < getVal(s+1, x,      y-1) &&
-                 center_value < getVal(s+1, x+1,    y-1) &&
-                 center_value < getVal(s+1, x-1,    y+1) &&
-                 center_value < getVal(s+1, x,      y+1) &&
-                 center_value < getVal(s+1, x+1,    y+1)));
+    int image_width = imageSize(dog_input).x;
+    int image_height = imageSize(dog_input).y;
 
-    //is_best_in_neighborhood = abs(center_value)>0.01;
+    if(x < image_width && y < image_height) {
 
-    if(is_best_in_neighborhood) {
+        // Check 3x3x3 neighborhood (x/y/s)
+        float center_value = getVal(s, x, y);
+        bool is_best_in_neighborhood = (abs(center_value)>push_const.soft_dog_threshold) && ((
+        //bool is_best_in_neighborhood = ((
+                    center_value > getVal(s,   x-1,    y) &&
+                    center_value > getVal(s,   x+1,    y) &&
+                    center_value > getVal(s,   x-1,    y-1) &&
+                    center_value > getVal(s,   x,      y-1) &&
+                    center_value > getVal(s,   x+1,    y-1) &&
+                    center_value > getVal(s,   x-1,    y+1) &&
+                    center_value > getVal(s,   x,      y+1) &&
+                    center_value > getVal(s,   x+1,    y+1) &&
+                    // Superior prev scale
+                    center_value > getVal(s-1, x-1,    y) &&
+                    center_value > getVal(s-1, x,      y) &&
+                    center_value > getVal(s-1, x+1,    y) &&
+                    center_value > getVal(s-1, x-1,    y-1) &&
+                    center_value > getVal(s-1, x,      y-1) &&
+                    center_value > getVal(s-1, x+1,    y-1) &&
+                    center_value > getVal(s-1, x-1,    y+1) &&
+                    center_value > getVal(s-1, x,      y+1) &&
+                    center_value > getVal(s-1, x+1,    y+1) &&
+                    // Superior next scale
+                    center_value > getVal(s+1, x-1,    y) &&
+                    center_value > getVal(s+1, x,      y) &&
+                    center_value > getVal(s+1, x+1,    y) &&
+                    center_value > getVal(s+1, x-1,    y-1) &&
+                    center_value > getVal(s+1, x,      y-1) &&
+                    center_value > getVal(s+1, x+1,    y-1) &&
+                    center_value > getVal(s+1, x-1,    y+1) &&
+                    center_value > getVal(s+1, x,      y+1) &&
+                    center_value > getVal(s+1, x+1,    y+1)) || // OR
+                    // Inferior curr scale
+                    (
+                    center_value < getVal(s,   x-1,    y) &&
+                    center_value < getVal(s,   x+1,    y) &&
+                    center_value < getVal(s,   x-1,    y-1) &&
+                    center_value < getVal(s,   x,      y-1) &&
+                    center_value < getVal(s,   x+1,    y-1) &&
+                    center_value < getVal(s,   x-1,    y+1) &&
+                    center_value < getVal(s,   x,      y+1) &&
+                    center_value < getVal(s,   x+1,    y+1) &&
+                    // Inferior prev scale
+                    center_value < getVal(s-1, x-1,    y) &&
+                    center_value < getVal(s-1, x,      y) &&
+                    center_value < getVal(s-1, x+1,    y) &&
+                    center_value < getVal(s-1, x-1,    y-1) &&
+                    center_value < getVal(s-1, x,      y-1) &&
+                    center_value < getVal(s-1, x+1,    y-1) &&
+                    center_value < getVal(s-1, x-1,    y+1) &&
+                    center_value < getVal(s-1, x,      y+1) &&
+                    center_value < getVal(s-1, x+1,    y+1) &&
+                    // Inferior next scale
+                    center_value < getVal(s+1, x-1,    y) &&
+                    center_value < getVal(s+1, x,      y) &&
+                    center_value < getVal(s+1, x+1,    y) &&
+                    center_value < getVal(s+1, x-1,    y-1) &&
+                    center_value < getVal(s+1, x,      y-1) &&
+                    center_value < getVal(s+1, x+1,    y-1) &&
+                    center_value < getVal(s+1, x-1,    y+1) &&
+                    center_value < getVal(s+1, x,      y+1) &&
+                    center_value < getVal(s+1, x+1,    y+1)));
 
-        // Refine keypoint
-        bool has_converged = false;
-        float offset_X = 0.f;
-        float offset_Y = 0.f;
-        float offset_S = 0.f;
-        int step_cnt = 0;
-        int refined_x = x;
-        int refined_y = y;
-        int refined_s = s;
+        //is_best_in_neighborhood = abs(center_value)>0.01;
 
-        for (step_cnt = 0; step_cnt < 5; step_cnt++)
-        {
-            // Check if point is in image boundaries otherwise stop ?
-            // Compute offset from gradient and Hessian
+        if(is_best_in_neighborhood) {
 
-            // Gradient
-            float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
-            float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
-            float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
-            // Hessian
-            float h11 = getVal(refined_s+1,refined_x,refined_y) + getVal(refined_s-1,refined_x,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
-            float h22 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
-            float h33 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
+            // Refine keypoint
+            bool has_converged = false;
+            float offset_X = 0.f;
+            float offset_Y = 0.f;
+            float offset_S = 0.f;
+            int step_cnt = 0;
+            int refined_x = x;
+            int refined_y = y;
+            int refined_s = s;
 
-            float h12 = 0.25f * (getVal(refined_s+1,refined_x+1,refined_y) - getVal(refined_s+1,refined_x-1,refined_y) -
-                                 getVal(refined_s-1,refined_x+1,refined_y) + getVal(refined_s-1,refined_x-1,refined_y));
-            float h13 = 0.25f * (getVal(refined_s+1,refined_x,refined_y+1) - getVal(refined_s+1,refined_x,refined_y-1) -
-                                 getVal(refined_s-1,refined_x,refined_y+1) + getVal(refined_s-1,refined_x,refined_y-1));
-            float h23 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
-                                 getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
-
-            // Inverted Hessian
-            float determinant = h11 * ((h22 * h33) - (h23 * h23)) - h12 * ((h12 * h33) - (h13 * h23)) + h13 * ((h12 * h23) - (h13 * h22));
-            if (determinant != 0.0f)
+            for (step_cnt = 0; step_cnt < 5; step_cnt++)
             {
-                float inv_h11 = ((h22 * h33) - (h23 * h23)) / determinant;
-                float inv_h12 = -1.f * ((h12 * h33) - (h13 * h23)) / determinant;
-                float inv_h13 = ((h12 * h23) - (h13 * h22)) / determinant;
+                // Check if point is in image boundaries otherwise stop ?
+                // Compute offset from gradient and Hessian
 
-                float inv_h22 = ((h11 * h33) - (h13 * h13)) / determinant;
-                float inv_h23 = -1.f * ((h11 * h23) - (h13 * h12)) / determinant;
-                float inv_h33 = ((h11 * h22) - (h12 * h12)) / determinant;
+                // Gradient
+                float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
+                float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
+                float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
+                // Hessian
+                float h11 = getVal(refined_s+1,refined_x,refined_y) + getVal(refined_s-1,refined_x,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
+                float h22 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
+                float h33 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
 
-                offset_S = -inv_h11 * gS - inv_h12 * gX - inv_h13 * gY;
-                offset_X = -inv_h12 * gS - inv_h22 * gX - inv_h23 * gY;
-                offset_Y = -inv_h13 * gS - inv_h23 * gX - inv_h33 * gY;
-            }
-            else
-            {
-                // No solution for this
-                break;
-            }
-            if (abs(offset_X) < 0.5f && abs(offset_Y) < 0.5f && abs(offset_S) < 0.5f)
-            {
-                // If all offset under 0.6 we can stop here, extremum is at (pos x_idx,y_idx,scale_idx)
-                has_converged = true;
-                break;
-            }
-            else
-            {
-                refined_x = x + int(round(offset_X));
-                refined_y = y + int(round(offset_Y));
-                refined_s = s + int(round(offset_S));
-            }
-        }
-        if(has_converged) {
-            float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
-            float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
-            float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
-            float new_val = getVal(refined_s,refined_x,refined_y) + 0.5f * (gX * offset_X + gY * offset_Y + gS * offset_S);
-            if(abs(new_val) > push_const.dog_threshold) {
-                float h11 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
-                float h22 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
-                float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
-                    getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
+                float h12 = 0.25f * (getVal(refined_s+1,refined_x+1,refined_y) - getVal(refined_s+1,refined_x-1,refined_y) -
+                                    getVal(refined_s-1,refined_x+1,refined_y) + getVal(refined_s-1,refined_x-1,refined_y));
+                float h13 = 0.25f * (getVal(refined_s+1,refined_x,refined_y+1) - getVal(refined_s+1,refined_x,refined_y-1) -
+                                    getVal(refined_s-1,refined_x,refined_y+1) + getVal(refined_s-1,refined_x,refined_y-1));
+                float h23 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
+                                    getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
 
-                float edgeness = pow(h11+h22, 2.f) / ((h11 * h22) - (h12 * h12));
-                if (edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))
+                // Inverted Hessian
+                float determinant = h11 * ((h22 * h33) - (h23 * h23)) - h12 * ((h12 * h33) - (h13 * h23)) + h13 * ((h12 * h23) - (h13 * h22));
+                if (determinant != 0.0f)
                 {
-                    uint idx = atomicAdd(nb_elem, 1);
-                    if (idx % 64 == 0) {
-                        atomicAdd(nb_x_group, 1);
-                    }
-                    data[idx].x = refined_x;
-                    data[idx].y = refined_y;
-                    data[idx].index_scale = uint(round(float(refined_s)+offset_S));
-                    data[idx].scale_factor = push_const.scale_factor;
-                    data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(refined_s+offset_S)/float(gl_NumWorkGroups.z));
-                    data[idx].theta = 0.f;
-                    data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
-                    data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
-                    data[idx].value = new_val;
+                    float inv_h11 = ((h22 * h33) - (h23 * h23)) / determinant;
+                    float inv_h12 = -1.f * ((h12 * h33) - (h13 * h23)) / determinant;
+                    float inv_h13 = ((h12 * h23) - (h13 * h22)) / determinant;
+
+                    float inv_h22 = ((h11 * h33) - (h13 * h13)) / determinant;
+                    float inv_h23 = -1.f * ((h11 * h23) - (h13 * h12)) / determinant;
+                    float inv_h33 = ((h11 * h22) - (h12 * h12)) / determinant;
+
+                    offset_S = -inv_h11 * gS - inv_h12 * gX - inv_h13 * gY;
+                    offset_X = -inv_h12 * gS - inv_h22 * gX - inv_h23 * gY;
+                    offset_Y = -inv_h13 * gS - inv_h23 * gX - inv_h33 * gY;
+                }
+                else
+                {
+                    // No solution for this
+                    break;
+                }
+                if (abs(offset_X) < 0.5f && abs(offset_Y) < 0.5f && abs(offset_S) < 0.5f)
+                {
+                    // If all offset under 0.6 we can stop here, extremum is at (pos x_idx,y_idx,scale_idx)
+                    has_converged = true;
+                    break;
+                }
+                else
+                {
+                    refined_x = x + int(round(offset_X));
+                    refined_y = y + int(round(offset_Y));
+                    refined_s = s + int(round(offset_S));
                 }
             }
+            if(has_converged) {
+                float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
+                float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
+                float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
+                float new_val = getVal(refined_s,refined_x,refined_y) + 0.5f * (gX * offset_X + gY * offset_Y + gS * offset_S);
+                if(abs(new_val) > push_const.dog_threshold) {
+                    float h11 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
+                    float h22 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
+                    float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
+                        getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
+
+                    float edgeness = pow(h11+h22, 2.f) / ((h11 * h22) - (h12 * h12));
+                    if (edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))
+                    {
+                        uint idx = atomicAdd(nb_elem, 1);
+                        if (idx % 64 == 0) {
+                            atomicAdd(nb_x_group, 1);
+                        }
+                        data[idx].x = refined_x;
+                        data[idx].y = refined_y;
+                        data[idx].index_scale = uint(round(float(refined_s)+offset_S));
+                        data[idx].scale_factor = push_const.scale_factor;
+                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(refined_s+offset_S)/float(gl_NumWorkGroups.z));
+                        data[idx].theta = 0.f;
+                        data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
+                        data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
+                        data[idx].value = new_val;
+                    }
+                }
+            }
+
+
+
+
+            /*uint idx = atomicAdd(nb_elem, 1);
+            data[idx].x = gl_GlobalInvocationID.x;
+            data[idx].y = gl_GlobalInvocationID.y;
+            data[idx].index_scale = gl_GlobalInvocationID.z+1;
+            data[idx].scale_factor = push_const.scale_factor;
+            data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(data[idx].index_scale)/float(gl_NumWorkGroups.z));
+            data[idx].theta = 0.f;
+            data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
+            data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
+            data[idx].value = center_value;*/
         }
-
-
-
-
-        /*uint idx = atomicAdd(nb_elem, 1);
-        data[idx].x = gl_GlobalInvocationID.x;
-        data[idx].y = gl_GlobalInvocationID.y;
-        data[idx].index_scale = gl_GlobalInvocationID.z+1;
-        data[idx].scale_factor = push_const.scale_factor;
-        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(data[idx].index_scale)/float(gl_NumWorkGroups.z));
-        data[idx].theta = 0.f;
-        data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
-        data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
-        data[idx].value = center_value;*/
     }
 
 

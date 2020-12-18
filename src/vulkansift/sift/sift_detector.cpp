@@ -1055,7 +1055,8 @@ bool SiftDetector::initCommandBuffer()
       GaussianBlurPushConsts pc{0, sep_kernel_sigma, 0};
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
-      vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
+      vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
+                    ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1066,7 +1067,8 @@ bool SiftDetector::initCommandBuffer()
       pc.is_vertical = 1;
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
-      vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
+      vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
+                    ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
 
       int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
       logError(LOG_TAG, "Kernel size %d", kernel_size);
@@ -1103,7 +1105,8 @@ bool SiftDetector::initCommandBuffer()
       GaussianBlurPushConsts pc{0, sep_kernel_sigma, (scale_i - 1)};
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
-      vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
+      vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
+                    ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1115,7 +1118,8 @@ bool SiftDetector::initCommandBuffer()
       pc.offset_y = scale_i;
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
-      vkCmdDispatch(m_command_buffer, m_octave_image_sizes[oct_i].width / 8, m_octave_image_sizes[oct_i].height / 8, 1);
+      vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
+                    ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
     }
   }
   endMarkerRegion(m_command_buffer);
@@ -1137,7 +1141,8 @@ bool SiftDetector::initCommandBuffer()
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_dog_pipeline_layout, 0, 1, &m_dog_desc_sets[i], 0, nullptr);
-    vkCmdDispatch(m_command_buffer, m_octave_image_sizes[i].width / 8, m_octave_image_sizes[i].height / 8, m_nb_scale_per_oct + 2);
+    vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[i].width) / 8.f),
+                  ceilf(static_cast<float>(m_octave_image_sizes[i].height) / 8.f), m_nb_scale_per_oct + 2);
   }
   {
     std::vector<VkImageMemoryBarrier> image_barriers;
@@ -1176,7 +1181,8 @@ bool SiftDetector::initCommandBuffer()
     vkCmdPushConstants(m_command_buffer, m_extractkpts_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_extractkpts_pipeline_layout, 0, 1, &m_extractkpts_desc_sets[i], 0,
                             nullptr);
-    vkCmdDispatch(m_command_buffer, m_octave_image_sizes[i].width / 8, m_octave_image_sizes[i].height / 8, m_nb_scale_per_oct);
+    vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[i].width) / 8.f),
+                  ceilf(static_cast<float>(m_octave_image_sizes[i].height) / 8.f), m_nb_scale_per_oct);
     {
       std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));

@@ -12,8 +12,18 @@ layout(push_constant) uniform PushConst {
 
 float kernel[20];
 
-void main() {
+int modulo(int x, int N) { return (x % N + N) % N; }
+int get_symetry_index(int in_index, int limit)
+{
+  // Symetry
+  int out_index = modulo((in_index + (limit * 2)), (limit * 2));
+  if (out_index > (limit - 1))
+    out_index = (limit * 2) - 1 - out_index;
 
+  return out_index;
+}
+
+void main() {
     int kernel_size = min(int(ceil(push_const.sigma * 4.f) + 1.f),20);
     kernel[0] = 1.f;
     float sum_kernel = kernel[0];
@@ -27,27 +37,44 @@ void main() {
         kernel[i] /= sum_kernel;
     }
 
+    int image_width = imageSize(img_input).x;
+    int image_height = imageSize(img_input).y;
+
     ivec3 coords_in = ivec3(ivec2(gl_GlobalInvocationID),0);
-    if(push_const.verticalPassFlag==0) {
-      coords_in.z = int(push_const.array_layer);
-    }
 
-    ivec3 coords_out = ivec3(ivec2(gl_GlobalInvocationID),0);
-    if(push_const.verticalPassFlag==1) {
-      coords_out.z = int(push_const.array_layer);
-    }
-
-    float rpix = imageLoad(img_input, coords_in).r * kernel[0];
-    if(push_const.verticalPassFlag==0) {
-        for(int i=1; i<kernel_size;i++) {
-            rpix += (imageLoad(img_input, coords_in + ivec3(i, 0, 0)).r +imageLoad(img_input, coords_in - ivec3(i, 0, 0)).r) * kernel[i];
+    if(coords_in.x < image_width && coords_in.y < image_height) {
+        
+        if(push_const.verticalPassFlag==0) {
+        coords_in.z = int(push_const.array_layer);
         }
-    }
-    else if(push_const.verticalPassFlag==1) {
-        for(int i=1; i<kernel_size;i++) {
-            rpix += (imageLoad(img_input, coords_in + ivec3(0, i, 0)).r +imageLoad(img_input, coords_in - ivec3(0, i, 0)).r) * kernel[i];
+
+        ivec3 coords_out = ivec3(ivec2(gl_GlobalInvocationID),0);
+        if(push_const.verticalPassFlag==1) {
+        coords_out.z = int(push_const.array_layer);
         }
+
+        float rpix = imageLoad(img_input, coords_in).r * kernel[0];
+        if(push_const.verticalPassFlag==0) {
+            for(int i=1; i<kernel_size;i++) {
+                ivec3 read_pi_coords = coords_in + ivec3(i, 0, 0);
+                ivec3 read_mi_coords = coords_in - ivec3(i, 0, 0);
+                if(read_pi_coords.x>=image_width){ read_pi_coords.x = get_symetry_index(read_pi_coords.x,image_width); }
+                if(read_mi_coords.x<0){ read_mi_coords.x = get_symetry_index(read_mi_coords.x,image_width); }
+                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * kernel[i];
+            }
+        }
+        else if(push_const.verticalPassFlag==1) {
+            for(int i=1; i<kernel_size;i++) {
+                ivec3 read_pi_coords = coords_in + ivec3(0, i, 0);
+                ivec3 read_mi_coords = coords_in - ivec3(0, i, 0);
+                if(read_pi_coords.y>=image_height){ read_pi_coords.y = get_symetry_index(read_pi_coords.y,image_height); }
+                if(read_mi_coords.y<0){ read_mi_coords.y = get_symetry_index(read_mi_coords.y,image_height); }
+                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * kernel[i];
+            }
+        }
+
+        imageStore(img_output, coords_out, vec4(rpix, 0.f, 0.f, 1.f));
     }
 
-    imageStore(img_output, coords_out, vec4(rpix, 0.f, 0.f, 1.f));
+
 }
