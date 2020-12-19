@@ -504,7 +504,8 @@ bool SiftMatcher::compute(const std::vector<SIFT_Feature> &sift_feats_a, const s
     VkMappedMemoryRange mem_range{
         .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_indispatch_buffer.getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
     vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range);
-    uint32_t indispatch_info[3] = {uint32_t(sift_feats_a.size()), 1, 1};
+    uint32_t nb_group_x = ceilf(static_cast<float>(sift_feats_a.size()) / 64);
+    uint32_t indispatch_info[3] = {nb_group_x, 1, 1};
     memcpy(m_indispatch_ptr, &indispatch_info, sizeof(uint32_t) * 3);
     vkFlushMappedMemoryRanges(m_device, 1, &mem_range);
   }

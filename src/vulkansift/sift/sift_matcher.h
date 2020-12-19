@@ -57,7 +57,7 @@ class SiftMatcher
   VulkanUtils::Buffer m_sift_a_staging_in_buffer;
   VulkanUtils::Buffer m_sift_b_staging_in_buffer;
   VulkanUtils::Buffer m_dists_staging_out_buffer;
-  uint32_t m_sift_buff_max_elem = 20000;
+  uint32_t m_sift_buff_max_elem = 50000;
   VulkanUtils::Buffer m_sift_a_buffer;
   VulkanUtils::Buffer m_sift_b_buffer;
   VulkanUtils::Buffer m_dists_buffer;

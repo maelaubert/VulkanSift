@@ -48,7 +48,7 @@ void main() {
     int image_width = imageSize(dog_input).x;
     int image_height = imageSize(dog_input).y;
 
-    if(x < image_width && y < image_height) {
+    if(x>=1 && x < (image_width-1) && y>=1 && y < (image_height-1)) {
 
         // Check 3x3x3 neighborhood (x/y/s)
         float center_value = getVal(s, x, y);

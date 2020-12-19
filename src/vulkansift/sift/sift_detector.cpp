@@ -22,8 +22,8 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
   m_image_width = image_width;
   m_image_height = image_height;
 
-  // m_nb_octave = roundf(logf(static_cast<float>(std::min(image_width * 2, image_height * 2))) / logf(2.f) - 2) + 1; // CV
-  m_nb_octave = std::max(floorf(log2f(static_cast<float>(std::min(image_width, image_height))) + 1 - 3), 1.f); // VLFEAT
+  // m_nb_octave = roundf(logf(static_cast<float>(std::min(image_width * 2, image_height * 2))) / logf(2.f) - 2) + 1;
+  m_nb_octave = std::max(floorf(log2f(static_cast<float>(std::min(image_width, image_height))) + 1 - 3), 1.f);
 
   // Compute image sizes (per octave and scale)
   for (uint32_t oct_i = 0; oct_i < m_nb_octave; oct_i++)

@@ -25,7 +25,7 @@ struct SIFT_2NN_Info
   float dist_ab2;
 };
 
-layout(local_size_x = 1) in;
+layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer SIFT_buffer_A {
     uint nb_elem;
     SIFT_Feat data[];
@@ -42,9 +42,8 @@ float compute_dist(SIFT_Feat feat_a, SIFT_Feat feat_b) {
     float dist = 0.f;
     for(int i=0; i<((NB_HIST*NB_HIST*NB_ORI)/4); i++) {
         for(int j=0; j<4;j++) {
-            uint a_elem = (feat_a.feature_vector[i]&(255<<(j*8)))>>(j*8);
-            uint b_elem = (feat_b.feature_vector[i]&(255<<(j*8)))>>(j*8);
-            //dist += pow(float(a_elem-b_elem),2.f);
+            uint a_elem = (feat_a.feature_vector[i]>>(j*8))&255;
+            uint b_elem = (feat_b.feature_vector[i]>>(j*8))&255;
             dist += (a_elem-b_elem)*(a_elem-b_elem);
         }
     }
