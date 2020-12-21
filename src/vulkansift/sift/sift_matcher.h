@@ -24,8 +24,7 @@ class SiftMatcher
   public:
   SiftMatcher() = default;
   bool init(VulkanInstance *vulkan_instance);
-  bool compute(const std::vector<SIFT_Feature> &sift_feats_a, const std::vector<SIFT_Feature> &sift_feats_b, std::vector<SIFT_Feature> &matches_a,
-               std::vector<SIFT_Feature> &matches_b);
+  bool compute(const std::vector<SIFT_Feature> &sift_feats_a, const std::vector<SIFT_Feature> &sift_feats_b, std::vector<SIFT_2NN_Info> &matches_info);
   void terminate();
 
   private:

@@ -476,7 +476,7 @@ bool SiftMatcher::initCommandBuffer()
 }
 
 bool SiftMatcher::compute(const std::vector<SIFT_Feature> &sift_feats_a, const std::vector<SIFT_Feature> &sift_feats_b,
-                          std::vector<SIFT_Feature> &matches_a, std::vector<SIFT_Feature> &matches_b)
+                          std::vector<SIFT_2NN_Info> &matches_info)
 {
   vkResetFences(m_device, 1, &m_fence);
   // Copy SIFT A
@@ -525,31 +525,14 @@ bool SiftMatcher::compute(const std::vector<SIFT_Feature> &sift_feats_a, const s
 
   vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
 
-  // Copy 2NN results back to CPU and select matches
-  logInfo(LOG_TAG, "Before DIST copy");
-  matches_a.clear();
-  matches_b.clear();
-
-  std::vector<SIFT_2NN_Info> results_2nn;
-  results_2nn.resize(sift_feats_a.size());
-
+  // Copy 2NN results back to CPU
+  matches_info.resize(sift_feats_a.size());
   {
     VkMappedMemoryRange mem_range_output{
         .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_dists_staging_out_buffer.getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
     vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
-    memcpy(results_2nn.data(), m_output_dists_ptr, sizeof(SIFT_2NN_Info) * sift_feats_a.size());
+    memcpy(matches_info.data(), m_output_dists_ptr, sizeof(SIFT_2NN_Info) * sift_feats_a.size());
   }
-
-  // TODO: for every result, use Lowe's ratio to push back match or not
-  for (const SIFT_2NN_Info &nn_res : results_2nn)
-  {
-    if ((nn_res.dist_ab1 / nn_res.dist_ab2) < 0.75)
-    {
-      matches_a.push_back(sift_feats_a[nn_res.idx_a]);
-      matches_b.push_back(sift_feats_b[nn_res.idx_b1]);
-    }
-  }
-  logInfo(LOG_TAG, "%d matches found", int(matches_a.size()));
 
   return true;
 }

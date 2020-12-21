@@ -164,7 +164,29 @@ int main()
 
     std::vector<VulkanSIFT::SIFT_Feature> matches_1;
     std::vector<VulkanSIFT::SIFT_Feature> matches_2;
-    matcher.compute(img1_kp, img2_kp, matches_1, matches_2);
+    std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info12;
+    std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info21;
+    matcher.compute(img1_kp, img2_kp, matches_info12);
+    matcher.compute(img2_kp, img1_kp, matches_info21);
+    for (int i = 0; i < matches_info12.size(); i++)
+    {
+      int idx_in_2 = matches_info12[i].idx_b1;
+      // Check mutual match
+      if (matches_info21[idx_in_2].idx_b1 == i)
+      {
+        // Check Lowe's ration in 1
+        if ((matches_info12[i].dist_ab1 / matches_info12[i].dist_ab2) < 0.75)
+        {
+          // Check Lowe's ration in 2
+          if ((matches_info21[idx_in_2].dist_ab1 / matches_info21[idx_in_2].dist_ab2) < 0.75)
+          {
+            matches_1.push_back(img1_kp[matches_info12[i].idx_a]);
+            matches_2.push_back(img2_kp[matches_info12[i].idx_b1]);
+          }
+        }
+      }
+    }
+    std::cout << "Found " << matches_1.size() << " matches" << std::endl;
 
     cv::Mat draw_frame1, draw_frame2;
     img1_grey.convertTo(draw_frame1, CV_8UC3);
@@ -174,17 +196,12 @@ int main()
     draw_frame1 = getOrientedKeypointsImage(image1, img1_kp, width1, height1);
     draw_frame2 = getOrientedKeypointsImage(image2, img2_kp, width2, height2);
 
-    /*for (int i = 0; i < 50; i++)
-    {
-      std::cout << img1_kp[i].x << " " << img1_kp[i].y << " " << img1_kp[i].orig_x << " " << img1_kp[i].orig_y << std::endl;
-    }*/
-
-    cv::imshow("Image1 SIFT", draw_frame1);
-    cv::imshow("Image2 SIFT", draw_frame2);
+    cv::imshow("VulkanSIFT image1 keypoints", draw_frame1);
+    cv::imshow("VulkanSIFT image2 keypoints", draw_frame2);
 
     // Draw matches
     cv::Mat matches_image = getKeypointsMatches(image1, matches_1, width1, height1, image2, matches_2, width2, height2);
-    cv::imshow("Matches", matches_image);
+    cv::imshow("VulkanSIFT matches", matches_image);
 
     cv::waitKey(30);
 
