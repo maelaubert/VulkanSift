@@ -1,2 +1,4 @@
 .vscode
 build
+res/feature_evaluation_data
+external_libs/vlfeat

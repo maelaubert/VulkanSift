@@ -132,6 +132,37 @@ endif()
 if(VULKANSIFT_BUILD_PERFS)
 message("Performance tests will be built")
 # Add perf executables
+
+set(VULKAN_SIFT_PERFS_COMMON_SRC 
+    src/perf/perf_common.cpp
+    src/perf/wrappers/vulkansift_wrapper.cpp
+    src/perf/wrappers/opencv_wrapper.cpp
+    src/perf/wrappers/vlfeat_wrapper.cpp
+)
+
+set(VULKAN_SIFT_PERFS_COMMON_INC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/external_libs/>
+)
+
+set(VULKAN_SIFT_PERFS_COMMON_LIBS
+    vulkansift
+    pthread
+    omp
+    ${OpenCV_LIBS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/vlfeat/lib/libvlfeat.a
+)
+
+add_executable(perf_sift_match src/perf/perf_matching.cpp ${VULKAN_SIFT_PERFS_COMMON_SRC})
+target_compile_options(perf_sift_match PRIVATE "-O3;-fopenmp")
+target_include_directories(perf_sift_match PRIVATE ${VULKAN_SIFT_PERFS_COMMON_INC})
+target_link_libraries(perf_sift_match ${VULKAN_SIFT_PERFS_COMMON_LIBS})
+
+add_executable(perf_sift_runtime src/perf/perf_runtime.cpp ${VULKAN_SIFT_PERFS_COMMON_SRC})
+target_compile_options(perf_sift_runtime PRIVATE "-O3;-fopenmp")
+target_include_directories(perf_sift_runtime PRIVATE ${VULKAN_SIFT_PERFS_COMMON_INC})
+target_link_libraries(perf_sift_runtime ${VULKAN_SIFT_PERFS_COMMON_LIBS})
+
 endif()
 
 # Copy image resource directory to build folder if examples or perf scripts are built
@@ -139,5 +170,8 @@ if(VULKANSIFT_BUILD_EXAMPLES)
 add_custom_command(TARGET test_sift_detect POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy_directory
                        ${CMAKE_SOURCE_DIR}/res $<TARGET_FILE_DIR:test_sift_detect>/res)
-#elseif(VULKANSIFT_BUILD_PERFS)
+elseif(VULKANSIFT_BUILD_PERFS)
+add_custom_command(TARGET perf_sift_match POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E copy_directory
+                       ${CMAKE_SOURCE_DIR}/res $<TARGET_FILE_DIR:perf_sift_match>/res)
 endif()

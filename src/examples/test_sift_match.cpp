@@ -174,10 +174,10 @@ int main()
       // Check mutual match
       if (matches_info21[idx_in_2].idx_b1 == i)
       {
-        // Check Lowe's ration in 1
+        // Check Lowe's ratio in 1
         if ((matches_info12[i].dist_ab1 / matches_info12[i].dist_ab2) < 0.75)
         {
-          // Check Lowe's ration in 2
+          // Check Lowe's ratio in 2
           if ((matches_info21[idx_in_2].dist_ab1 / matches_info21[idx_in_2].dist_ab2) < 0.75)
           {
             matches_1.push_back(img1_kp[matches_info12[i].idx_a]);
