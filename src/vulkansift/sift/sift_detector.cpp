@@ -1047,7 +1047,7 @@ bool SiftDetector::initCommandBuffer()
       // Blur the first scale
       // float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in)) / m_scale_factor_min;
       float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
-      logError(LOG_TAG, "First image sigma %f", sep_kernel_sigma);
+      // logError(LOG_TAG, "First image sigma %f", sep_kernel_sigma);
 
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
@@ -1075,7 +1075,7 @@ bool SiftDetector::initCommandBuffer()
                     ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
 
       int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      logError(LOG_TAG, "Kernel size %d", kernel_size);
+      // logError(LOG_TAG, "Kernel size %d", kernel_size);
     }
     else
     {
@@ -1094,9 +1094,9 @@ bool SiftDetector::initCommandBuffer()
       float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
       float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
       float sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
-      logError(LOG_TAG, "Octave %d scale %d sigma= %f", oct_i, scale_i, sep_kernel_sigma);
+      // logError(LOG_TAG, "Octave %d scale %d sigma= %f", oct_i, scale_i, sep_kernel_sigma);
       int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      logError(LOG_TAG, "Kernel size %d", kernel_size);
+      // logError(LOG_TAG, "Kernel size %d", kernel_size);
 
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
@@ -1179,7 +1179,7 @@ bool SiftDetector::initCommandBuffer()
     pushconst.scale_factor = powf(2.f, i) * m_scale_factor_min;
     pushconst.dog_threshold = m_dog_threshold;
     pushconst.edge_threshold = m_kp_edge_threshold;
-    logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
+    // logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
     vkCmdPushConstants(m_command_buffer, m_extractkpts_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_extractkpts_pipeline_layout, 0, 1, &m_extractkpts_desc_sets[i], 0,
                             nullptr);
@@ -1339,7 +1339,6 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
   vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
 
   // Copy SIFT features
-  logInfo(LOG_TAG, "Before SIFT copy");
   sift_feats.clear();
 
   int total_nb_sift = 0;
@@ -1365,8 +1364,8 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
     vec_offset += nb_feat_per_octave[i];
   }
 
-  logInfo(LOG_TAG, "%d SIFT found", int(sift_feats.size()));
-  logInfo(LOG_TAG, "%d SIFT found", total_nb_sift);
+  // logInfo(LOG_TAG, "%d SIFT found", int(sift_feats.size()));
+  // logInfo(LOG_TAG, "%d SIFT found", total_nb_sift);
   return true;
 }
 
