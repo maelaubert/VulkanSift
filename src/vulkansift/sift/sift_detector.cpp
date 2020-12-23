@@ -1185,12 +1185,15 @@ bool SiftDetector::initCommandBuffer()
                             nullptr);
     vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[i].width) / 8.f),
                   ceilf(static_cast<float>(m_octave_image_sizes[i].height) / 8.f), m_nb_scale_per_oct);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
-      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
-                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
     }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -1236,12 +1239,15 @@ bool SiftDetector::initCommandBuffer()
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_orientation_pipeline_layout, 0, 1, &m_orientation_desc_sets[i], 0,
                             nullptr);
     vkCmdDispatchIndirect(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
-      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
-                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
     }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -1260,12 +1266,15 @@ bool SiftDetector::initCommandBuffer()
   {
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptor_pipeline_layout, 0, 1, &m_descriptor_desc_sets[i], 0, nullptr);
     vkCmdDispatchIndirect(m_command_buffer, m_indispatch_descriptors_buffers[i].getBuffer(), 0);
+  }
+  {
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
+    for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      std::vector<VkBufferMemoryBarrier> buffer_barriers;
       buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT));
-      vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
-                           buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
     }
+    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         buffer_barriers.size(), buffer_barriers.data(), 0, nullptr);
   }
   endMarkerRegion(m_command_buffer);
 
