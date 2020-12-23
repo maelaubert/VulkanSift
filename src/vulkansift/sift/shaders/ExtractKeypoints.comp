@@ -178,9 +178,9 @@ void main() {
                 }
                 else
                 {
-                    refined_x = x + int(round(offset_X));
-                    refined_y = y + int(round(offset_Y));
-                    refined_s = s + int(round(offset_S));
+                    refined_x = refined_x + int(round(offset_X));
+                    refined_y = refined_y + int(round(offset_Y));
+                    refined_s = refined_s + int(round(offset_S));
                 }
             }
             if(has_converged) {
@@ -188,14 +188,16 @@ void main() {
                 float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
                 float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
                 float new_val = getVal(refined_s,refined_x,refined_y) + 0.5f * (gX * offset_X + gY * offset_Y + gS * offset_S);
-                if(abs(new_val) > push_const.dog_threshold) {
+                if(abs(new_val) > push_const.dog_threshold && abs(offset_X)<1.5 && abs(offset_Y)<1.5 && abs(offset_S)<1.5
+                 && refined_x >= 0 && refined_x < image_width && refined_y >= 0 && refined_y < image_height && 
+                refined_s >= 0 && refined_s<=(gl_NumWorkGroups.z+1)) {
                     float h11 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
                     float h22 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
                     float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
                         getVal(refined_s,refined_x-1,refined_y+1) + getVal(refined_s,refined_x-1,refined_y-1));
 
                     float edgeness = ((h11+h22)*(h11+h22)) / ((h11 * h22) - (h12 * h12));
-                    if ((edgeness <= (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))&&(edgeness>=0))
+                    if ((edgeness < (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))&&(edgeness>=0))
                     {
                         uint idx = atomicAdd(nb_elem, 1);
                         if (idx % 64 == 0) {

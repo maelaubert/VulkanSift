@@ -37,19 +37,6 @@ float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
 }
 
-float fast_exp(float inp) {
-    float res = 1.f + (inp / 256.f);
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    res *= res;
-    return res;
-}
-
 void main() {
     int idx = int(gl_GlobalInvocationID.x);
     //data[idx].theta = -5.f;
@@ -58,7 +45,7 @@ void main() {
     int image_height = imageSize(octave_input).y;
 
     float scaled_lambda_ori = LAMBDA_ORIENTATION * (data[idx].sigma / data[idx].scale_factor);
-    int box_radius = int(round(3 * scaled_lambda_ori));
+    int box_radius = int(floor(3 * scaled_lambda_ori));
     float expf_scale = -1.f / (2.f * scaled_lambda_ori * scaled_lambda_ori);
 
     float orientation_histogram[NB_HIST_BINS];
@@ -75,14 +62,20 @@ void main() {
             int grad_x_idx = int(round(data[idx].x)) + delta_x;
             int grad_y_idx = int(round(data[idx].y)) + delta_y;
 
-            if(grad_x_idx<1 || grad_x_idx>=(image_width-1) || grad_y_idx<1 || grad_y_idx>=(image_height-1)) {
+            float sqrdist2center = delta_x * delta_x + delta_y + delta_y;
+
+            // Keep in circular window and in image bounds
+            if((grad_x_idx<1 || grad_x_idx>=(image_width-1) || grad_y_idx<1 || grad_y_idx>=(image_height-1)) &&
+            (sqrdist2center > (box_radius*box_radius))) {
                 continue;
             }
+
+            
 
             float gradX = 0.5f * (getImVal(int(data[idx].index_scale), grad_x_idx+1, grad_y_idx) - getImVal(int(data[idx].index_scale), grad_x_idx-1, grad_y_idx));
             float gradY = 0.5f * (getImVal(int(data[idx].index_scale), grad_x_idx, grad_y_idx+1) - getImVal(int(data[idx].index_scale), grad_x_idx, grad_y_idx-1));
 
-            float mag = fast_exp((delta_x * delta_x + delta_y + delta_y) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
+            float mag = exp((sqrdist2center) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
             float orientation = atan(gradY, gradX);
             // Cap orientation in [0, 2xPI]
             if(orientation<0) {
@@ -108,10 +101,10 @@ void main() {
     }
     for (int i = 0; i < NB_HIST_BINS; i++)
     {
-        int m2 = ((i - 2) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
-        int m1 = ((i - 1) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
-        int p1 = ((i + 1) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
-        int p2 = ((i + 2) % NB_HIST_BINS + NB_HIST_BINS) % NB_HIST_BINS;
+        int m2 = ((i - 2) + NB_HIST_BINS) % NB_HIST_BINS;
+        int m1 = ((i - 1) + NB_HIST_BINS) % NB_HIST_BINS;
+        int p1 = ((i + 1) + NB_HIST_BINS) % NB_HIST_BINS;
+        int p2 = ((i + 2) + NB_HIST_BINS) % NB_HIST_BINS;
         orientation_histogram[i] = (tmp_histogram[m2] + tmp_histogram[p2]) * (1.f / 16.f) + (tmp_histogram[m1] + tmp_histogram[p1]) * (4.f / 16.f) +
                                 tmp_histogram[i] * (6.f / 16.f);
     }
@@ -126,7 +119,7 @@ void main() {
     {
         int prev_index = (i - 1 + NB_HIST_BINS) % NB_HIST_BINS;
         int next_index = (i + 1) % NB_HIST_BINS;
-        if ((orientation_histogram[i] >= LOCAL_EXTREMA_THRESHOLD * max_hist_value) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
+        if ((orientation_histogram[i] >= (LOCAL_EXTREMA_THRESHOLD * max_hist_value)) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
             (orientation_histogram[i] > orientation_histogram[next_index]))
         {
 

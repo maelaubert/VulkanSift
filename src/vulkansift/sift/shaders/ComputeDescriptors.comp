@@ -40,7 +40,7 @@ void main() {
 
     float scaled_lambda_desc = LAMBDA_DESCRIPTOR * (kp.sigma / kp.scale_factor);
     float radius = sqrt(2.f) * scaled_lambda_desc *(NB_HIST+1) * 0.5;
-    int int_radius = int(radius);
+    int int_radius = int(floor(radius+0.5f));
 
     float keypoint_cos = cos(kp.theta)/scaled_lambda_desc;
     float keypoint_sin = sin(kp.theta)/scaled_lambda_desc;
@@ -83,29 +83,32 @@ void main() {
             float mag = exp(expf_scale * ((oriented_x * oriented_x) + (oriented_y * oriented_y)))*sqrt((gradX*gradX)+(gradY*gradY));
 
             // Compute histogram indexes
-            float fhist_x_idx = oriented_x + (NB_HIST/2) -0.5;
-            float fhist_y_idx = oriented_y + (NB_HIST/2) -0.5;
+            float fhist_x_idx = oriented_x + (NB_HIST/2);
+            float fhist_y_idx = oriented_y + (NB_HIST/2);
             float fbin_idx = orientation * float(NB_ORI) / (2.f * PI);
-            if (fhist_x_idx < 0 || fhist_x_idx>=NB_HIST || fhist_y_idx < 0 || fhist_y_idx>=NB_HIST)
+
+            int hist_x_idx = int(floor(fhist_x_idx -0.5));
+            int hist_y_idx = int(floor(fhist_y_idx -0.5));
+            int bin_idx = int(floor(fbin_idx));
+            if (hist_x_idx < 0 || hist_x_idx>=NB_HIST || hist_y_idx < 0 || hist_y_idx>=NB_HIST)
             {
                 continue;
             }
-            int hist_x_idx = int(floor(fhist_x_idx));
-            int hist_y_idx = int(floor(fhist_y_idx));
+            float rhist_x_idx = fhist_x_idx - (float(hist_x_idx)+0.5);
+            float rhist_y_idx = fhist_y_idx - (float(hist_y_idx)+0.5);
+            float rbin_idx = fbin_idx-float(bin_idx);
 
             // Disperse contribution into the two nearest histograms and bins
-            for (int i = hist_x_idx; i < hist_x_idx + 2; i++)
+            for (int i = 0; i < 2; i++)
             {
-                for (int j = hist_y_idx; j < hist_y_idx + 2; j++)
+                for (int j = 0; j < 2; j++)
                 {
-                    if(i>= 0 && i<NB_HIST && j>=0 && j<NB_HIST) {
-                        int bin_idx_left = (int(orientation) % NB_ORI + NB_ORI) % NB_ORI;
-                        work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_left] +=
-                            (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) - fbin_idx)) * mag;
-
-                        int bin_idx_right = (int(orientation) % NB_ORI + NB_ORI + 1) % NB_ORI;
-                        work_feat_vect[j * NB_HIST * NB_ORI + i * NB_ORI + bin_idx_right] +=
-                            (1.f - abs(i - fhist_x_idx)) * (1.f - abs(j - fhist_y_idx)) * (1.f - abs(floor(fbin_idx) + 1.f - fbin_idx)) * mag;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        if((i+hist_x_idx)>= 0 && (i+hist_x_idx)<NB_HIST && (j+hist_y_idx)>=0 && (j+hist_y_idx)<NB_HIST) {
+                            work_feat_vect[(j+hist_y_idx) * NB_HIST * NB_ORI + (i+hist_x_idx) * NB_ORI + ((k+bin_idx)%NB_ORI)] +=
+                                abs(1.f - i - rhist_x_idx) * abs(1.f - j - rhist_y_idx) * abs(1.f - k - rbin_idx) * mag;
+                        }
                     }
                 }
             }
