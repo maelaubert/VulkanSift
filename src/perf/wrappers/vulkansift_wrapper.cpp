@@ -42,30 +42,31 @@ uint8_t *VulkanSiftDetector::allocAndFillGreyBufferFromCvMat(cv::Mat image)
 void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
                                     std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2)
 {
-  VulkanSIFT::SiftDetector detector;
+  VulkanSIFT::SiftDetector detector1;
+  VulkanSIFT::SiftDetector detector2;
   std::vector<VulkanSIFT::SIFT_Feature> img1_kps, img2_kps;
 
   uint8_t *img1_buf = allocAndFillGreyBufferFromCvMat(image1);
   uint8_t *img2_buf = allocAndFillGreyBufferFromCvMat(image2);
 
   // Compute SIFT features on both images
-  if (!detector.init(&m_instance, image1.cols, image1.rows))
+  if (!detector1.init(&m_instance, image1.cols, image1.rows))
   {
     delete[] img1_buf;
     delete[] img2_buf;
     return;
   }
-  detector.compute(img1_buf, img1_kps);
-  detector.terminate();
+  detector1.compute(img1_buf, img1_kps);
+  detector1.terminate();
 
-  if (!detector.init(&m_instance, image2.cols, image2.rows))
+  if (!detector2.init(&m_instance, image2.cols, image2.rows))
   {
     delete[] img1_buf;
     delete[] img2_buf;
     return;
   }
-  detector.compute(img2_buf, img2_kps);
-  detector.terminate();
+  detector2.compute(img2_buf, img2_kps);
+  detector2.terminate();
 
   delete[] img1_buf;
   delete[] img2_buf;
