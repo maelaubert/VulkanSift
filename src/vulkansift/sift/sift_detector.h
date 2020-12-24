@@ -47,7 +47,7 @@ class SiftDetector
   float m_sigma_in = 0.5f;
   float m_scale_factor_min = 0.5f;
   // Parameters for keypoints detection
-  float m_dog_threshold = 0.f; // 0.04f / 3;
+  float m_dog_threshold = 0.04f / 3;
 
   // uint32_t m_kp_refinement_nb_steps = 5;
   float m_kp_edge_threshold = 10.f;

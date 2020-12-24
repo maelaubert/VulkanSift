@@ -8,6 +8,15 @@
 #define LOCAL_EXTREMA_THRESHOLD 0.8f
 #define PI 3.14159265358979323846
 
+/*
+OPT IDEAS
+32 threads takes care of a single orientation
+
+- orientation histogram is shared and thread contribute to it in parallel with atomic ops
+elements in the evaluated 2D box
+- every thread in parallel to smooth and find keypoints orientation (like one thread per hist bin)
+*/
+
 struct SIFT_Feat {
   float x;
   float y;
@@ -21,7 +30,8 @@ struct SIFT_Feat {
   uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
 };
 
-layout(local_size_x = 64) in;
+#define LOCAL_SIZE_X 1
+layout(local_size_x = LOCAL_SIZE_X) in;
 layout(r32f, binding = 0) uniform image2DArray octave_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
@@ -135,9 +145,7 @@ void main() {
             else {
                 // Add new keypoint with orientation
                 uint new_kpt_idx = atomicAdd(nb_elem, 1);
-                if (new_kpt_idx % 64 == 0) {
-                    atomicAdd(nb_x_group, 1);
-                }
+                atomicAdd(nb_x_group, 1);
                 data[new_kpt_idx] = data[idx];
                 data[new_kpt_idx].theta = keypoint_orientation;
             }

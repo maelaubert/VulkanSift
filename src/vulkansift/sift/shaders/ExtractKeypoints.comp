@@ -200,9 +200,7 @@ void main() {
                     if ((edgeness < (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))&&(edgeness>=0))
                     {
                         uint idx = atomicAdd(nb_elem, 1);
-                        if (idx % 64 == 0) {
-                            atomicAdd(nb_x_group, 1);
-                        }
+                        atomicAdd(nb_x_group, 1);
                         data[idx].x = refined_x;
                         data[idx].y = refined_y;
                         data[idx].index_scale = uint(round(float(refined_s)+offset_S));
