@@ -59,6 +59,9 @@ class SiftDetector
   // Parameters for SIFT feature computation
   // float m_lambda_descriptor = 6.f;
   // float m_l2_norm_threshold = 0.2f;
+
+  uint32_t m_max_nb_sift = 20000;
+  std::vector<uint32_t> m_max_nb_feat_per_octave;
   ///////////////////////////////////////////////////////////////////////////////
 
   uint32_t m_image_width;
@@ -80,7 +83,6 @@ class SiftDetector
   // Buffers
   VulkanUtils::Buffer m_input_image_staging_in_buffer;
   std::vector<VulkanUtils::Buffer> m_sift_staging_out_buffers;
-  uint32_t m_sift_buff_max_elem = 50000;
   std::vector<VulkanUtils::Buffer> m_sift_keypoints_buffers;
   std::vector<VulkanUtils::Buffer> m_indispatch_orientation_buffers;
   std::vector<VulkanUtils::Buffer> m_indispatch_descriptors_buffers;

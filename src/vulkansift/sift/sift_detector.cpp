@@ -34,6 +34,17 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
     m_octave_image_sizes.push_back({octave_width, octave_height});
   }
 
+  // Compute the max amount of feature per octave
+  m_max_nb_feat_per_octave.clear();
+  {
+    float sum = ((float)m_max_nb_sift / 2) * ((1 - powf(0.5f, m_nb_octave)) / (1 - 0.5f));
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      float nb_curr_oct = (((float)m_max_nb_sift * powf(0.5f, i + 1)) / sum) * (float)m_max_nb_sift;
+      m_max_nb_feat_per_octave.push_back(nb_curr_oct);
+    }
+  }
+
   m_vulkan_instance = vulkan_instance;
 
   // Get Vulkan entities and information from VulkanManager
@@ -222,7 +233,7 @@ bool SiftDetector::initMemory()
     m_sift_keypoints_buffers.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_sift_keypoints_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
+      if (!m_sift_keypoints_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_max_nb_feat_per_octave[i] * sizeof(SIFT_Feature)),
                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
       {
@@ -237,7 +248,7 @@ bool SiftDetector::initMemory()
     m_sift_staging_out_buffers.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_sift_staging_out_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_sift_buff_max_elem * sizeof(SIFT_Feature)),
+      if (!m_sift_staging_out_buffers[i].create(m_device, m_physical_device, sizeof(uint32_t) + (m_max_nb_feat_per_octave[i] * sizeof(SIFT_Feature)),
                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT))
       {
@@ -1292,7 +1303,7 @@ bool SiftDetector::initCommandBuffer()
   }
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_sift_buff_max_elem + sizeof(uint32_t)};
+    VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_max_nb_feat_per_octave[i] + sizeof(uint32_t)};
     vkCmdCopyBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &sift_copy_region);
   }
   {
@@ -1360,7 +1371,7 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
         .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_sift_staging_out_buffers[i].getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
     vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
     uint32_t nb_sift_feat = ((uint32_t *)m_output_sift_ptr[i])[0];
-    nb_sift_feat = std::min(nb_sift_feat, m_sift_buff_max_elem);
+    nb_sift_feat = std::min(nb_sift_feat, m_max_nb_feat_per_octave[i]);
     nb_feat_per_octave.push_back(nb_sift_feat);
     total_nb_sift += nb_sift_feat;
   }
