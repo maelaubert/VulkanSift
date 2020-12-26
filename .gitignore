@@ -5,3 +5,4 @@ build
 res/feature_evaluation_data
 external_libs/vlfeat
 external_libs/SiftGPU
+external_libs/popsift

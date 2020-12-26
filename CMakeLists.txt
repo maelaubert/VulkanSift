@@ -139,6 +139,7 @@ set(VULKAN_SIFT_PERFS_COMMON_SRC
     src/perf/wrappers/opencv_wrapper.cpp
     src/perf/wrappers/vlfeat_wrapper.cpp
     src/perf/wrappers/siftgpu_wrapper.cpp
+    src/perf/wrappers/popsift_wrapper.cpp
 )
 
 set(VULKAN_SIFT_PERFS_COMMON_INC
@@ -158,6 +159,7 @@ set(VULKAN_SIFT_PERFS_COMMON_LIBS
     ${OpenCV_LIBS}
     ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/vlfeat/lib/libvlfeat.a
     ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/SiftGPU/lib/libsift_gpu.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/popsift/lib/libpopsift.so.1.0.0
 )
 
 add_executable(perf_sift_match src/perf/perf_matching.cpp ${VULKAN_SIFT_PERFS_COMMON_SRC})

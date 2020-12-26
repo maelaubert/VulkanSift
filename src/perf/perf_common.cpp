@@ -1,10 +1,11 @@
 #include "perf/perf_common.h"
 #include "perf/wrappers/opencv_wrapper.h"
+#include "perf/wrappers/popsift_wrapper.h"
 #include "perf/wrappers/siftgpu_wrapper.h"
 #include "perf/wrappers/vlfeat_wrapper.h"
 #include "perf/wrappers/vulkansift_wrapper.h"
 
-static const std::vector<std::string> detector_name_list = {"VulkanSIFT", "OpenCV", "VLFeat", "SiftGPU"};
+static const std::vector<std::string> detector_name_list = {"VulkanSIFT", "OpenCV", "VLFeat", "SiftGPU", "PopSift"};
 
 std::vector<std::string> getDetectorTypeNames() { return detector_name_list; }
 
@@ -30,6 +31,11 @@ bool getDetectorTypeFromName(std::string det_name, DETECTOR_TYPE &det_type)
     det_type = DETECTOR_TYPE::SIFTGPU;
     return true;
   }
+  else if (det_name == std::string{"PopSift"})
+  {
+    det_type = DETECTOR_TYPE::POPSIFT;
+    return true;
+  }
   return false;
 }
 
@@ -46,6 +52,8 @@ std::shared_ptr<AbstractSiftDetector> createDetector(DETECTOR_TYPE type)
     return std::make_shared<VLFeatDetector>();
   case DETECTOR_TYPE::SIFTGPU:
     return std::make_shared<SiftGPUDetector>();
+  case DETECTOR_TYPE::POPSIFT:
+    return std::make_shared<PopSiftDetector>();
   default:
     break;
   }
