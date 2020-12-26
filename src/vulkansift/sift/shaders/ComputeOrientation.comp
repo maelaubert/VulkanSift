@@ -21,7 +21,8 @@ struct SIFT_Feat {
   uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
 };
 
-layout(local_size_x = 64) in;
+#define LOCAL_SIZE_X 32
+layout(local_size_x = LOCAL_SIZE_X) in;
 layout(r32f, binding = 0) uniform image2DArray octave_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
@@ -37,111 +38,137 @@ float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
 }
 
+shared uint orientation_count;
+shared SIFT_Feat kp;
+shared uint[NB_HIST_BINS] orientation_histogram;
+shared uint[NB_HIST_BINS] tmp_histogram;
+shared uint max_hist_value;
+
 void main() {
-    int idx = int(gl_GlobalInvocationID.x);
-    //data[idx].theta = -5.f;
+    int local_id = int(gl_LocalInvocationID.x);
+
+    if(local_id==0) {
+        kp = data[gl_WorkGroupID.x];
+        orientation_count = 0;
+        max_hist_value = 0;
+        for(int i=0; i<NB_HIST_BINS;i++) {
+            orientation_histogram[i] = 0;
+        }
+    }
+    barrier();
+    memoryBarrierShared();
 
     int image_width = imageSize(octave_input).x;
     int image_height = imageSize(octave_input).y;
 
-    float scaled_lambda_ori = LAMBDA_ORIENTATION * (data[idx].sigma / data[idx].scale_factor);
+    float scaled_lambda_ori = LAMBDA_ORIENTATION * (kp.sigma / kp.scale_factor);
     int box_radius = int(floor(3 * scaled_lambda_ori));
     float expf_scale = -1.f / (2.f * scaled_lambda_ori * scaled_lambda_ori);
 
-    float orientation_histogram[NB_HIST_BINS];
-    float tmp_histogram[NB_HIST_BINS];
-    for(int i=0; i<NB_HIST_BINS;i++) {
-        orientation_histogram[i] = 0.f;
-    }
-
-    bool is_first = true;
-
-    // Fill orientation histogram
-    for (int delta_x = -box_radius; delta_x <= box_radius; delta_x++) {
-        for (int delta_y = -box_radius; delta_y <= box_radius; delta_y++) {
-            int grad_x_idx = int(round(data[idx].x)) + delta_x;
-            int grad_y_idx = int(round(data[idx].y)) + delta_y;
-
-            float sqrdist2center = delta_x * delta_x + delta_y + delta_y;
-
-            // Keep in circular window and in image bounds
-            if((grad_x_idx<1 || grad_x_idx>=(image_width-1) || grad_y_idx<1 || grad_y_idx>=(image_height-1)) &&
-            (sqrdist2center > (box_radius*box_radius))) {
-                continue;
-            }
-
-            
-
-            float gradX = 0.5f * (getImVal(int(data[idx].index_scale), grad_x_idx+1, grad_y_idx) - getImVal(int(data[idx].index_scale), grad_x_idx-1, grad_y_idx));
-            float gradY = 0.5f * (getImVal(int(data[idx].index_scale), grad_x_idx, grad_y_idx+1) - getImVal(int(data[idx].index_scale), grad_x_idx, grad_y_idx-1));
-
-            float mag = exp((sqrdist2center) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
-            float orientation = atan(gradY, gradX);
-            // Cap orientation in [0, 2xPI]
-            if(orientation<0) {
-                orientation += 2.f*PI;
-            }
-            else if(orientation > (2.f*PI)) {
-                orientation -= 2.f*PI;
-            }
-            int bin_index = int((orientation * float(NB_HIST_BINS) / (2.f * PI)) + 0.5f);
-            if (bin_index < 0) {
-                bin_index += NB_HIST_BINS;
-            }
-            else if (bin_index >= NB_HIST_BINS) {
-                bin_index -= NB_HIST_BINS;
-            }
-            orientation_histogram[bin_index] += mag;
+    // Compute conversion to fixed point (see explanation in descriptor shader)
+    float max_elem_val = 0.f;
+    for(int i=-box_radius; i<=box_radius;i++) {
+        for(int j=-box_radius; j<=box_radius;j++) {
+            max_elem_val += exp(expf_scale * ((i * i) + (j * j)))*sqrt(2);
         }
     }
+    float fp_convertor = float(1<<uint(30 - ceil(log2(max_elem_val))));
 
-    // Smooth histogram
-    for(int i=0; i<NB_HIST_BINS;i++) {
-        tmp_histogram[i] = orientation_histogram[i];
+    // Fill orientation histogram
+    int box_size = (box_radius*2)+1;
+    for(int pix_idx=local_id; pix_idx<(box_size*box_size); pix_idx+=LOCAL_SIZE_X) {
+        int delta_y = (pix_idx/box_size)-box_radius;
+        int delta_x = (pix_idx%box_size)-box_radius;
+        int grad_x_idx = int(round(kp.x)) + delta_x;
+        int grad_y_idx = int(round(kp.y)) + delta_y;
+
+        float sqrdist2center = delta_x * delta_x + delta_y + delta_y;
+
+        // Keep in circular window and in image bounds
+        if((grad_x_idx<1 || grad_x_idx>=(image_width-1) || grad_y_idx<1 || grad_y_idx>=(image_height-1)) &&
+        (sqrdist2center > (box_radius*box_radius))) {
+            continue;
+        }
+
+        float gradX = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx+1, grad_y_idx) - getImVal(int(kp.index_scale), grad_x_idx-1, grad_y_idx));
+        float gradY = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx+1) - getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx-1));
+
+        float mag = exp((sqrdist2center) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
+        float orientation = atan(gradY, gradX);
+        // Cap orientation in [0, 2xPI]
+        if(orientation<0) {
+            orientation += 2.f*PI;
+        }
+        else if(orientation > (2.f*PI)) {
+            orientation -= 2.f*PI;
+        }
+        int bin_index = int((orientation * float(NB_HIST_BINS) / (2.f * PI)) + 0.5f);
+        if (bin_index < 0) {
+            bin_index += NB_HIST_BINS;
+        }
+        else if (bin_index >= NB_HIST_BINS) {
+            bin_index -= NB_HIST_BINS;
+        }
+        atomicAdd(orientation_histogram[bin_index], uint(mag*fp_convertor));
     }
-    for (int i = 0; i < NB_HIST_BINS; i++)
-    {
-        int m2 = ((i - 2) + NB_HIST_BINS) % NB_HIST_BINS;
-        int m1 = ((i - 1) + NB_HIST_BINS) % NB_HIST_BINS;
-        int p1 = ((i + 1) + NB_HIST_BINS) % NB_HIST_BINS;
-        int p2 = ((i + 2) + NB_HIST_BINS) % NB_HIST_BINS;
-        orientation_histogram[i] = (tmp_histogram[m2] + tmp_histogram[p2]) * (1.f / 16.f) + (tmp_histogram[m1] + tmp_histogram[p1]) * (4.f / 16.f) +
-                                tmp_histogram[i] * (6.f / 16.f);
+
+    barrier();
+    memoryBarrierShared();
+
+
+
+    // Smooth histogram similarly to original paper (6 times, 1/3 smooth)
+    for(int nb_smooth=0; nb_smooth<3; nb_smooth++) {
+        for (int i = local_id; i < NB_HIST_BINS; i+=LOCAL_SIZE_X)
+        {
+            int m1 = ((i - 1) + NB_HIST_BINS) % NB_HIST_BINS;
+            int p1 = ((i + 1) + NB_HIST_BINS) % NB_HIST_BINS;
+            tmp_histogram[i] = uint(float(orientation_histogram[m1]+orientation_histogram[i]+orientation_histogram[p1])/3.f);
+        }
+        barrier();
+        memoryBarrierShared();
+        for (int i = local_id; i < NB_HIST_BINS; i+=LOCAL_SIZE_X)
+        {
+            int m1 = ((i - 1) + NB_HIST_BINS) % NB_HIST_BINS;
+            int p1 = ((i + 1) + NB_HIST_BINS) % NB_HIST_BINS;
+            orientation_histogram[i] = uint(float(tmp_histogram[m1]+tmp_histogram[i]+tmp_histogram[p1])/3.f);
+        }
+        barrier();
+        memoryBarrierShared();
     }
 
     // Compute principal orientation
-    float max_hist_value = orientation_histogram[0];
-    for (int i = 1; i < NB_HIST_BINS; i++) {
-        max_hist_value = orientation_histogram[i] > max_hist_value ? orientation_histogram[i] : max_hist_value;
+    for (int i = local_id; i < NB_HIST_BINS; i+=LOCAL_SIZE_X) {
+        atomicMax(max_hist_value,orientation_histogram[i]);
     }
+    barrier();
+    memoryBarrierShared();
 
-    for (int i = 0; i < NB_HIST_BINS; i++)
+    for (int i = local_id; i < NB_HIST_BINS; i+=LOCAL_SIZE_X)
     {
         int prev_index = (i - 1 + NB_HIST_BINS) % NB_HIST_BINS;
         int next_index = (i + 1) % NB_HIST_BINS;
-        if ((orientation_histogram[i] >= (LOCAL_EXTREMA_THRESHOLD * max_hist_value)) && (orientation_histogram[i] > orientation_histogram[prev_index]) &&
-            (orientation_histogram[i] > orientation_histogram[next_index]))
+        if ((float(orientation_histogram[i]) >= (LOCAL_EXTREMA_THRESHOLD * float(max_hist_value)))
+            && (orientation_histogram[i] > orientation_histogram[prev_index]) 
+            && (orientation_histogram[i] > orientation_histogram[next_index]))
         {
 
-            float local_max_hist_idx = float(i) + 0.5f*((orientation_histogram[prev_index] - orientation_histogram[next_index]) /
-                                    (orientation_histogram[prev_index] - (2.f * orientation_histogram[i]) + orientation_histogram[next_index]));
+            float local_max_hist_idx = float(i) + 0.5f*(float(orientation_histogram[prev_index] - orientation_histogram[next_index]) /
+                                    float(orientation_histogram[prev_index] - (2 * orientation_histogram[i]) + orientation_histogram[next_index]));
 
             float keypoint_orientation = (local_max_hist_idx + 0.5f) * (2.f * PI) / float(NB_HIST_BINS);
 
-            if(is_first) {
-                data[idx].theta = keypoint_orientation;
-                is_first = false;
+            uint prev_nb_ori = atomicAdd(orientation_count, 1);
+            if(prev_nb_ori==0) {
+                data[gl_WorkGroupID.x].theta = keypoint_orientation;
             }
             else {
                 // Add new keypoint with orientation
                 uint new_kpt_idx = atomicAdd(nb_elem, 1);
-                if (new_kpt_idx % 64 == 0) {
-                    atomicAdd(nb_x_group, 1);
-                }
-                data[new_kpt_idx] = data[idx];
+                atomicAdd(nb_x_group, 1);
+                data[new_kpt_idx] = kp;
                 data[new_kpt_idx].theta = keypoint_orientation;
             }
         }
     }
-
 }
