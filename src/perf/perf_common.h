@@ -14,7 +14,8 @@ enum DETECTOR_TYPE
   VULKANSIFT,
   OPENCV,
   VLFEAT,
-  SIFTGPU
+  SIFTGPU,
+  POPSIFT
 };
 
 struct CommonPoint
