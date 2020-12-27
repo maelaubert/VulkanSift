@@ -24,6 +24,7 @@ class SiftDetector
   bool initDescriptors();
   bool initPipelines();
   bool initCommandBuffer();
+  void precomputeGaussianKernels();
 
   void beginMarkerRegion(VkCommandBuffer cmd_buf, const char *region_name);
   void endMarkerRegion(VkCommandBuffer cmd_buf);
@@ -62,6 +63,8 @@ class SiftDetector
 
   uint32_t m_max_nb_sift = 20000;
   std::vector<uint32_t> m_max_nb_feat_per_octave;
+
+  std::vector<std::vector<float>> m_gaussian_kernels;
   ///////////////////////////////////////////////////////////////////////////////
 
   uint32_t m_image_width;

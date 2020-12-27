@@ -17,6 +17,8 @@ namespace VulkanSIFT
 
 static char LOG_TAG[] = "SiftDetector";
 
+constexpr uint32_t MAX_GAUSSIAN_KERNEL_SIZE = 20u;
+
 bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, const int image_height)
 {
   m_image_width = image_width;
@@ -44,6 +46,9 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
       m_max_nb_feat_per_octave.push_back(nb_curr_oct);
     }
   }
+
+  // Precompute gaussian kernels for scale space computation
+  precomputeGaussianKernels();
 
   m_vulkan_instance = vulkan_instance;
 
@@ -110,6 +115,44 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
   }
 
   return true;
+}
+
+void SiftDetector::precomputeGaussianKernels()
+{
+  m_gaussian_kernels.resize(m_nb_scale_per_oct + 3);
+  for (uint32_t scale_i = 0; scale_i < m_nb_scale_per_oct + 3; scale_i++)
+  {
+    float sep_kernel_sigma;
+    if (scale_i == 0)
+    {
+      // Used only for first octave (since all other first scales used downsampled scale from octave-1)
+      sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
+    }
+    else
+    {
+      // Gaussian blur from one scale to the other
+      float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
+      float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
+      sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
+    }
+
+    // Compute the gaussian kernel for the defined sigma value
+    uint32_t kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
+    kernel_size = std::min(kernel_size, MAX_GAUSSIAN_KERNEL_SIZE);
+    m_gaussian_kernels[scale_i].resize(kernel_size);
+    m_gaussian_kernels[scale_i][0] = 1.f;
+    float sum_kernel = m_gaussian_kernels[scale_i][0];
+    for (int i = 1; i < kernel_size; i++)
+    {
+      m_gaussian_kernels[scale_i][i] = exp(-0.5 * pow(float(i), 2.f) / pow(sep_kernel_sigma, 2.f));
+      sum_kernel += 2 * m_gaussian_kernels[scale_i][i];
+    }
+    for (int i = 0; i < kernel_size; i++)
+    {
+      m_gaussian_kernels[scale_i][i] /= sum_kernel;
+    }
+    // logInfo(LOG_TAG, "Scale %d: sigma=%f | kernel size=%d", scale_i, sep_kernel_sigma, kernel_size);
+  }
 }
 
 bool SiftDetector::initCommandPool()
@@ -765,8 +808,9 @@ bool SiftDetector::initDescriptors()
 struct GaussianBlurPushConsts
 {
   uint32_t is_vertical;
-  float sigma;
-  uint32_t offset_y;
+  uint32_t array_layer;
+  uint32_t kernel_size;
+  float kernel[MAX_GAUSSIAN_KERNEL_SIZE];
 };
 
 struct ExtractKeypointsPushConsts
@@ -786,8 +830,7 @@ bool SiftDetector::initPipelines()
     VkShaderModule blur_shader_module;
     VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
 
-    VkPushConstantRange push_constant_range{
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t) + sizeof(float) + sizeof(uint32_t)};
+    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(GaussianBlurPushConsts)};
     VkPipelineLayoutCreateInfo blur_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                          .setLayoutCount = 1,
                                                          .pSetLayouts = &m_blur_desc_set_layout,
@@ -1057,10 +1100,6 @@ bool SiftDetector::initCommandBuffer()
                      &region, VK_FILTER_LINEAR);
 
       // Blur the first scale
-      // float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in)) / m_scale_factor_min;
-      float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
-      // logError(LOG_TAG, "First image sigma %f", sep_kernel_sigma);
-
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1068,7 +1107,8 @@ bool SiftDetector::initCommandBuffer()
         vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                              image_barriers.size(), image_barriers.data());
       }
-      GaussianBlurPushConsts pc{0, sep_kernel_sigma, 0};
+      GaussianBlurPushConsts pc{.is_vertical = 0, .array_layer = 0, .kernel_size = (uint32_t)m_gaussian_kernels[0].size()};
+      memcpy(pc.kernel, m_gaussian_kernels[0].data(), sizeof(float) * m_gaussian_kernels[0].size());
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
@@ -1085,9 +1125,6 @@ bool SiftDetector::initCommandBuffer()
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
                     ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
-
-      int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      // logError(LOG_TAG, "Kernel size %d", kernel_size);
     }
     else
     {
@@ -1103,13 +1140,6 @@ bool SiftDetector::initCommandBuffer()
     for (uint32_t scale_i = 1; scale_i < m_nb_scale_per_oct + 3; scale_i++)
     {
       // Gaussian blur from one scale to the other
-      float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
-      float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
-      float sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
-      // logError(LOG_TAG, "Octave %d scale %d sigma= %f", oct_i, scale_i, sep_kernel_sigma);
-      int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      // logError(LOG_TAG, "Kernel size %d", kernel_size);
-
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1117,7 +1147,8 @@ bool SiftDetector::initCommandBuffer()
         vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                              image_barriers.size(), image_barriers.data());
       }
-      GaussianBlurPushConsts pc{0, sep_kernel_sigma, (scale_i - 1)};
+      GaussianBlurPushConsts pc{.is_vertical = 0, .array_layer = (scale_i - 1), .kernel_size = (uint32_t)m_gaussian_kernels[scale_i].size()};
+      memcpy(pc.kernel, m_gaussian_kernels[scale_i].data(), sizeof(float) * m_gaussian_kernels[scale_i].size());
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
@@ -1130,7 +1161,7 @@ bool SiftDetector::initCommandBuffer()
                              image_barriers.size(), image_barriers.data());
       }
       pc.is_vertical = 1;
-      pc.offset_y = scale_i;
+      pc.array_layer = scale_i;
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),

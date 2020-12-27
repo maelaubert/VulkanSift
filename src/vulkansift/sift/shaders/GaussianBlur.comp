@@ -6,11 +6,10 @@ layout(r32f, binding = 1) uniform image2DArray img_output;
 
 layout(push_constant) uniform PushConst {
     uint verticalPassFlag;
-    float sigma;
     uint array_layer;
+    uint kernel_size;
+    float kernel[20];    
 } push_const;
-
-float kernel[20];
 
 int modulo(int x, int N) { return (x % N + N) % N; }
 int get_symetry_index(int in_index, int limit)
@@ -24,19 +23,6 @@ int get_symetry_index(int in_index, int limit)
 }
 
 void main() {
-    int kernel_size = min(int(ceil(push_const.sigma * 4.f) + 1.f),20);
-    kernel[0] = 1.f;
-    float sum_kernel = kernel[0];
-    for (int i = 1; i < kernel_size; i++)
-    {
-        kernel[i] = exp(-0.5 * pow(float(i), 2.f) / pow(push_const.sigma, 2.f));
-        sum_kernel += 2 * kernel[i];
-    }
-    for (int i = 0; i < kernel_size; i++)
-    {
-        kernel[i] /= sum_kernel;
-    }
-
     int image_width = imageSize(img_input).x;
     int image_height = imageSize(img_input).y;
 
@@ -53,23 +39,23 @@ void main() {
         coords_out.z = int(push_const.array_layer);
         }
 
-        float rpix = imageLoad(img_input, coords_in).r * kernel[0];
+        float rpix = imageLoad(img_input, coords_in).r * push_const.kernel[0];
         if(push_const.verticalPassFlag==0) {
-            for(int i=1; i<kernel_size;i++) {
+            for(int i=1; i<push_const.kernel_size;i++) {
                 ivec3 read_pi_coords = coords_in + ivec3(i, 0, 0);
                 ivec3 read_mi_coords = coords_in - ivec3(i, 0, 0);
                 if(read_pi_coords.x>=image_width){ read_pi_coords.x = get_symetry_index(read_pi_coords.x,image_width); }
                 if(read_mi_coords.x<0){ read_mi_coords.x = get_symetry_index(read_mi_coords.x,image_width); }
-                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * kernel[i];
+                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * push_const.kernel[i];
             }
         }
         else if(push_const.verticalPassFlag==1) {
-            for(int i=1; i<kernel_size;i++) {
+            for(int i=1; i<push_const.kernel_size;i++) {
                 ivec3 read_pi_coords = coords_in + ivec3(0, i, 0);
                 ivec3 read_mi_coords = coords_in - ivec3(0, i, 0);
                 if(read_pi_coords.y>=image_height){ read_pi_coords.y = get_symetry_index(read_pi_coords.y,image_height); }
                 if(read_mi_coords.y<0){ read_mi_coords.y = get_symetry_index(read_mi_coords.y,image_height); }
-                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * kernel[i];
+                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * push_const.kernel[i];
             }
         }
 
