@@ -21,6 +21,7 @@ class SiftDetector
   private:
   bool initCommandPool();
   bool initMemory();
+  bool initSampler();
   bool initDescriptors();
   bool initPipelines();
   bool initCommandBuffer();
@@ -89,6 +90,9 @@ class SiftDetector
   std::vector<VulkanUtils::Buffer> m_sift_keypoints_buffers;
   std::vector<VulkanUtils::Buffer> m_indispatch_orientation_buffers;
   std::vector<VulkanUtils::Buffer> m_indispatch_descriptors_buffers;
+
+  // Sampler
+  VkSampler m_sampler = VK_NULL_HANDLE;
 
   ////////////////////
 

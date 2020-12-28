@@ -1,7 +1,7 @@
 #version 450
 
 layout(local_size_x = 8, local_size_y = 8) in;
-layout(r32f, binding = 0) uniform image2DArray img_input;
+layout(binding = 0) uniform sampler2DArray img_input;
 layout(r32f, binding = 1) uniform image2DArray img_output;
 
 layout(push_constant) uniform PushConst {
@@ -11,56 +11,37 @@ layout(push_constant) uniform PushConst {
     float kernel[20];    
 } push_const;
 
-int modulo(int x, int N) { return (x % N + N) % N; }
-int get_symetry_index(int in_index, int limit)
-{
-  // Symetry
-  int out_index = modulo((in_index + (limit * 2)), (limit * 2));
-  if (out_index > (limit - 1))
-    out_index = (limit * 2) - 1 - out_index;
-
-  return out_index;
-}
-
 void main() {
-    int image_width = imageSize(img_input).x;
-    int image_height = imageSize(img_input).y;
+    uint image_width = textureSize(img_input,0).x;
+    uint image_height = textureSize(img_input,0).y;
 
-    ivec3 coords_in = ivec3(ivec2(gl_GlobalInvocationID),0);
+    // Set input image coordinate to texel coordinate = unnormalized (gl_GlobalInvocationID.x,gl_GlobalInvocationID.y)
+    vec3 coords_in = vec3((float(gl_GlobalInvocationID.x)+0.5)/float(image_width), (float(gl_GlobalInvocationID.y)+0.5)/float(image_height),0);
 
-    if(coords_in.x < image_width && coords_in.y < image_height) {
+    if(gl_GlobalInvocationID.x < image_width && gl_GlobalInvocationID.y < image_height) {
         
         if(push_const.verticalPassFlag==0) {
-        coords_in.z = int(push_const.array_layer);
+            coords_in.z = float(push_const.array_layer);
         }
 
         ivec3 coords_out = ivec3(ivec2(gl_GlobalInvocationID),0);
         if(push_const.verticalPassFlag==1) {
-        coords_out.z = int(push_const.array_layer);
+            coords_out.z = int(push_const.array_layer);
         }
 
-        float rpix = imageLoad(img_input, coords_in).r * push_const.kernel[0];
+        float rpix = textureLod(img_input, coords_in,0).r * push_const.kernel[0];
         if(push_const.verticalPassFlag==0) {
             for(int i=1; i<push_const.kernel_size;i++) {
-                ivec3 read_pi_coords = coords_in + ivec3(i, 0, 0);
-                ivec3 read_mi_coords = coords_in - ivec3(i, 0, 0);
-                if(read_pi_coords.x>=image_width){ read_pi_coords.x = get_symetry_index(read_pi_coords.x,image_width); }
-                if(read_mi_coords.x<0){ read_mi_coords.x = get_symetry_index(read_mi_coords.x,image_width); }
-                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * push_const.kernel[i];
+                vec3 offset = vec3(float(i)/float(image_width), 0, 0);
+                rpix += (textureLod(img_input, coords_in + offset,0).r + textureLod(img_input, coords_in - offset,0).r) * push_const.kernel[i];
             }
         }
         else if(push_const.verticalPassFlag==1) {
             for(int i=1; i<push_const.kernel_size;i++) {
-                ivec3 read_pi_coords = coords_in + ivec3(0, i, 0);
-                ivec3 read_mi_coords = coords_in - ivec3(0, i, 0);
-                if(read_pi_coords.y>=image_height){ read_pi_coords.y = get_symetry_index(read_pi_coords.y,image_height); }
-                if(read_mi_coords.y<0){ read_mi_coords.y = get_symetry_index(read_mi_coords.y,image_height); }
-                rpix += (imageLoad(img_input, read_pi_coords).r +imageLoad(img_input, read_mi_coords).r) * push_const.kernel[i];
+                vec3 offset = vec3(0, float(i)/float(image_height), 0);
+                rpix += (textureLod(img_input, coords_in + offset,0).r +textureLod(img_input, coords_in - offset,0).r) * push_const.kernel[i];
             }
         }
-
         imageStore(img_output, coords_out, vec4(rpix, 0.f, 0.f, 1.f));
     }
-
-
 }
