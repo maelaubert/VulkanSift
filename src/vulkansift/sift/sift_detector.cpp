@@ -146,17 +146,47 @@ void SiftDetector::precomputeGaussianKernels()
     // Compute the gaussian kernel for the defined sigma value
     uint32_t kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
     kernel_size = std::min(kernel_size, MAX_GAUSSIAN_KERNEL_SIZE);
-    m_gaussian_kernels[scale_i].resize(kernel_size);
-    m_gaussian_kernels[scale_i][0] = 1.f;
-    float sum_kernel = m_gaussian_kernels[scale_i][0];
+
+    std::vector<float> kernel_data;
+    kernel_data.resize(kernel_size);
+    kernel_data[0] = 1.f;
+    float sum_kernel = kernel_data[0];
     for (uint32_t i = 1; i < kernel_size; i++)
     {
-      m_gaussian_kernels[scale_i][i] = exp(-0.5 * pow(float(i), 2.f) / pow(sep_kernel_sigma, 2.f));
-      sum_kernel += 2 * m_gaussian_kernels[scale_i][i];
+      kernel_data[i] = exp(-0.5 * pow(float(i), 2.f) / pow(sep_kernel_sigma, 2.f));
+      sum_kernel += 2 * kernel_data[i];
     }
     for (uint32_t i = 0; i < kernel_size; i++)
     {
-      m_gaussian_kernels[scale_i][i] /= sum_kernel;
+      kernel_data[i] /= sum_kernel;
+    }
+
+    // Compute hardware interpolated kernel if necessary
+    if (m_use_hardware_interp_kernel)
+    {
+      // Hardware interpolated kernel based on https://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+      // Goal here is to use hardware sampler to reduce the number of texture fetch by a factor of two
+      uint32_t hardware_interp_size = (uint32_t)(ceilf((float)kernel_size / 2.f));
+      m_gaussian_kernels[scale_i].resize(hardware_interp_size * 2); // Twice the space to store both coeffs and offsets
+
+      // First kernel coeff and offset stays the same
+      m_gaussian_kernels[scale_i][0] = kernel_data[0];
+      m_gaussian_kernels[scale_i][1] = (float)0;
+      for (uint32_t data_idx = 1, kern_idx = 1; (data_idx + 1) < kernel_size; data_idx += 2, kern_idx++)
+      {
+        m_gaussian_kernels[scale_i][kern_idx * 2] = kernel_data[data_idx] + kernel_data[data_idx + 1];
+        m_gaussian_kernels[scale_i][(kern_idx * 2) + 1] =
+            (((float)data_idx * kernel_data[data_idx]) + ((float)(data_idx + 1) * kernel_data[data_idx + 1])) /
+            (kernel_data[data_idx] + kernel_data[data_idx + 1]);
+      }
+    }
+    else
+    {
+      m_gaussian_kernels[scale_i].resize(kernel_size);
+      for (uint32_t i = 0; i < kernel_size; i++)
+      {
+        m_gaussian_kernels[scale_i][i] = kernel_data[i];
+      }
     }
     // logInfo(LOG_TAG, "Scale %d: sigma=%f | kernel size=%d", scale_i, sep_kernel_sigma, kernel_size);
   }
@@ -866,7 +896,14 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule blur_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
+    if (m_use_hardware_interp_kernel)
+    {
+      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlurInterpolated.comp.spv", &blur_shader_module);
+    }
+    else
+    {
+      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
+    }
 
     VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(GaussianBlurPushConsts)};
     VkPipelineLayoutCreateInfo blur_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,

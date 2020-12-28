@@ -62,6 +62,8 @@ class SiftDetector
   // float m_lambda_descriptor = 6.f;
   // float m_l2_norm_threshold = 0.2f;
 
+  bool m_use_hardware_interp_kernel = true;
+
   uint32_t m_max_nb_sift = 20000;
   std::vector<uint32_t> m_max_nb_feat_per_octave;
 
