@@ -152,10 +152,7 @@ void main() {
         int hist_x_idx = int(floor(fhist_x_idx -0.5));
         int hist_y_idx = int(floor(fhist_y_idx -0.5));
         int bin_idx = int(floor(fbin_idx));
-        if (hist_x_idx < 0 || hist_x_idx>=NB_HIST || hist_y_idx < 0 || hist_y_idx>=NB_HIST)
-        {
-            continue;
-        }
+        
         float rhist_x_idx = fhist_x_idx - (float(hist_x_idx)+0.5);
         float rhist_y_idx = fhist_y_idx - (float(hist_y_idx)+0.5);
         float rbin_idx = fbin_idx-float(bin_idx);

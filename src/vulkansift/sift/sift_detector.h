@@ -49,7 +49,7 @@ class SiftDetector
   float m_sigma_in = 0.5f;
   float m_scale_factor_min = 0.5f;
   // Parameters for keypoints detection
-  float m_dog_threshold = 0.04f / 3;
+  float m_dog_threshold = 0.04f / (float)m_nb_scale_per_oct;
 
   // uint32_t m_kp_refinement_nb_steps = 5;
   float m_kp_edge_threshold = 10.f;
@@ -64,7 +64,7 @@ class SiftDetector
 
   bool m_use_hardware_interp_kernel = true;
 
-  uint32_t m_max_nb_sift = 20000;
+  uint32_t m_max_nb_sift = 50000;
   std::vector<uint32_t> m_max_nb_feat_per_octave;
 
   std::vector<std::vector<float>> m_gaussian_kernels;

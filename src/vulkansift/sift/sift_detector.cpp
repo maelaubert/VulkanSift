@@ -1209,7 +1209,7 @@ bool SiftDetector::initCommandBuffer()
                          .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
                          .dstOffsets = {{0, 0, 0}, {(int32_t)m_octave_image_sizes[oct_i].width, (int32_t)m_octave_image_sizes[oct_i].height, 1}}};
       vkCmdBlitImage(m_command_buffer, m_octave_images[oct_i - 1].getImage(), VK_IMAGE_LAYOUT_GENERAL, m_octave_images[oct_i].getImage(),
-                     VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_LINEAR);
+                     VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_NEAREST);
     }
 
     for (uint32_t scale_i = 1; scale_i < m_nb_scale_per_oct + 3; scale_i++)
