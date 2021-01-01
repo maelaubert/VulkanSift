@@ -124,13 +124,16 @@ void main() {
         int idx_x = int(round(kp.x)) + delta_x;
         int idx_y = int(round(kp.y)) + delta_y;
 
+        float subpix_delta_x = (round(kp.x)+float(delta_x))-kp.x;
+        float subpix_delta_y = (round(kp.y)+float(delta_y))-kp.y;
+
         if(idx_x<1 || idx_x>=(image_width-1) || idx_y<1 || idx_y>=(image_height-1)) {
             continue;
         }
 
         // Rotate indexes by keypoint orientation
-        float oriented_x = keypoint_cos * float(delta_x) + keypoint_sin * float(delta_y);
-        float oriented_y = keypoint_cos * float(delta_y) - keypoint_sin * float(delta_x);
+        float oriented_x = keypoint_cos * float(subpix_delta_x) + keypoint_sin * float(subpix_delta_y);
+        float oriented_y = keypoint_cos * float(subpix_delta_y) - keypoint_sin * float(subpix_delta_x);
 
         float gradX = 0.5f * (getImVal(int(kp.index_scale), idx_x+1, idx_y) - getImVal(int(kp.index_scale), idx_x-1, idx_y));
         float gradY = 0.5f * (getImVal(int(kp.index_scale), idx_x, idx_y+1) - getImVal(int(kp.index_scale), idx_x, idx_y-1));
