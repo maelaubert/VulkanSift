@@ -8,7 +8,7 @@ layout(push_constant) uniform PushConst {
     uint verticalPassFlag;
     uint array_layer;
     uint kernel_size;
-    float kernel[20];    
+    float kernel[20]; // [coeff1, offset1, coeff2, offset2, ...]
 } push_const;
 
 void main() {
@@ -31,14 +31,14 @@ void main() {
 
         float rpix = textureLod(img_input, coords_in,0).r * push_const.kernel[0];
         if(push_const.verticalPassFlag==0) {
-            for(int i=1; i<push_const.kernel_size;i++) {
-                vec3 offset = vec3(float(i)/float(image_width), 0, 0);
+            for(int i=2; i<push_const.kernel_size;i+=2) {
+                vec3 offset = vec3(push_const.kernel[i+1]/float(image_width), 0, 0);
                 rpix += (textureLod(img_input, coords_in + offset,0).r + textureLod(img_input, coords_in - offset,0).r) * push_const.kernel[i];
             }
         }
         else if(push_const.verticalPassFlag==1) {
-            for(int i=1; i<push_const.kernel_size;i++) {
-                vec3 offset = vec3(0, float(i)/float(image_height), 0);
+            for(int i=2; i<push_const.kernel_size;i+=2) {
+                vec3 offset = vec3(0, push_const.kernel[i+1]/float(image_height), 0);
                 rpix += (textureLod(img_input, coords_in + offset,0).r +textureLod(img_input, coords_in - offset,0).r) * push_const.kernel[i];
             }
         }

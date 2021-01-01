@@ -45,6 +45,7 @@ set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/viz/shaders/shader.frag
 
     src/vulkansift/sift/shaders/GaussianBlur.comp
+    src/vulkansift/sift/shaders/GaussianBlurInterpolated.comp
     src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
     src/vulkansift/sift/shaders/ExtractKeypoints.comp
     src/vulkansift/sift/shaders/ComputeOrientation.comp

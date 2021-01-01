@@ -17,6 +17,8 @@ namespace VulkanSIFT
 
 static char LOG_TAG[] = "SiftDetector";
 
+constexpr uint32_t MAX_GAUSSIAN_KERNEL_SIZE = 20u;
+
 bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, const int image_height)
 {
   m_image_width = image_width;
@@ -44,6 +46,9 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
       m_max_nb_feat_per_octave.push_back(nb_curr_oct);
     }
   }
+
+  // Precompute gaussian kernels for scale space computation
+  precomputeGaussianKernels();
 
   m_vulkan_instance = vulkan_instance;
 
@@ -85,6 +90,13 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
     return false;
   }
 
+  // Init image sampler object
+  if (!initSampler())
+  {
+    terminate();
+    return false;
+  }
+
   // Init descriptors used to access the objects in shaders
   if (!initDescriptors())
   {
@@ -110,6 +122,74 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
   }
 
   return true;
+}
+
+void SiftDetector::precomputeGaussianKernels()
+{
+  m_gaussian_kernels.resize(m_nb_scale_per_oct + 3);
+  for (uint32_t scale_i = 0; scale_i < m_nb_scale_per_oct + 3; scale_i++)
+  {
+    float sep_kernel_sigma;
+    if (scale_i == 0)
+    {
+      // Used only for first octave (since all other first scales used downsampled scale from octave-1)
+      sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
+    }
+    else
+    {
+      // Gaussian blur from one scale to the other
+      float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
+      float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
+      sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
+    }
+
+    // Compute the gaussian kernel for the defined sigma value
+    uint32_t kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
+    kernel_size = std::min(kernel_size, MAX_GAUSSIAN_KERNEL_SIZE);
+
+    std::vector<float> kernel_data;
+    kernel_data.resize(kernel_size);
+    kernel_data[0] = 1.f;
+    float sum_kernel = kernel_data[0];
+    for (uint32_t i = 1; i < kernel_size; i++)
+    {
+      kernel_data[i] = exp(-0.5 * pow(float(i), 2.f) / pow(sep_kernel_sigma, 2.f));
+      sum_kernel += 2 * kernel_data[i];
+    }
+    for (uint32_t i = 0; i < kernel_size; i++)
+    {
+      kernel_data[i] /= sum_kernel;
+    }
+
+    // Compute hardware interpolated kernel if necessary
+    if (m_use_hardware_interp_kernel)
+    {
+      // Hardware interpolated kernel based on https://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+      // Goal here is to use hardware sampler to reduce the number of texture fetch by a factor of two
+      uint32_t hardware_interp_size = (uint32_t)(ceilf((float)kernel_size / 2.f));
+      m_gaussian_kernels[scale_i].resize(hardware_interp_size * 2); // Twice the space to store both coeffs and offsets
+
+      // First kernel coeff and offset stays the same
+      m_gaussian_kernels[scale_i][0] = kernel_data[0];
+      m_gaussian_kernels[scale_i][1] = (float)0;
+      for (uint32_t data_idx = 1, kern_idx = 1; (data_idx + 1) < kernel_size; data_idx += 2, kern_idx++)
+      {
+        m_gaussian_kernels[scale_i][kern_idx * 2] = kernel_data[data_idx] + kernel_data[data_idx + 1];
+        m_gaussian_kernels[scale_i][(kern_idx * 2) + 1] =
+            (((float)data_idx * kernel_data[data_idx]) + ((float)(data_idx + 1) * kernel_data[data_idx + 1])) /
+            (kernel_data[data_idx] + kernel_data[data_idx + 1]);
+      }
+    }
+    else
+    {
+      m_gaussian_kernels[scale_i].resize(kernel_size);
+      for (uint32_t i = 0; i < kernel_size; i++)
+      {
+        m_gaussian_kernels[scale_i][i] = kernel_data[i];
+      }
+    }
+    // logInfo(LOG_TAG, "Scale %d: sigma=%f | kernel size=%d", scale_i, sep_kernel_sigma, kernel_size);
+  }
 }
 
 bool SiftDetector::initCommandPool()
@@ -154,9 +234,9 @@ bool SiftDetector::initMemory()
     m_blur_temp_results.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_blur_temp_results[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT,
-                                         VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1))
+      if (!m_blur_temp_results[i].create(
+              m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+              VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1))
       {
         logError(LOG_TAG, "Failed to create blur temporary result image.");
         return false;
@@ -169,10 +249,10 @@ bool SiftDetector::initMemory()
     m_octave_images.resize(m_nb_octave);
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
-      if (!m_octave_images[i].create(m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT,
-                                     VK_IMAGE_TILING_OPTIMAL,
-                                     VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_nb_scale_per_oct + 3))
+      if (!m_octave_images[i].create(
+              m_device, m_physical_device, m_octave_image_sizes[i].width, m_octave_image_sizes[i].height, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+              VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_nb_scale_per_oct + 3))
       {
         logError(LOG_TAG, "Failed to create octave image.");
         return false;
@@ -298,6 +378,37 @@ bool SiftDetector::initMemory()
 
   return true;
 }
+
+bool SiftDetector::initSampler()
+{
+
+  VkSamplerCreateInfo sampler_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                   .pNext = nullptr,
+                                   .flags = 0,
+                                   .magFilter = VK_FILTER_LINEAR,
+                                   .minFilter = VK_FILTER_LINEAR,
+                                   .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                                   .addressModeU = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+                                   .addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+                                   .addressModeW = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+                                   .mipLodBias = 0.f,
+                                   .anisotropyEnable = VK_FALSE,
+                                   .maxAnisotropy = 0.f,
+                                   .compareEnable = VK_FALSE,
+                                   .compareOp = VK_COMPARE_OP_ALWAYS,
+                                   .minLod = 0.f,
+                                   .maxLod = 0.f,
+                                   .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+                                   .unnormalizedCoordinates = VK_FALSE};
+
+  if (vkCreateSampler(m_device, &sampler_info, nullptr, &m_sampler) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create image sampler");
+    return false;
+  }
+  return true;
+}
+
 bool SiftDetector::initDescriptors()
 {
 
@@ -306,7 +417,7 @@ bool SiftDetector::initDescriptors()
   ///////////////////////////////////////////////////
   {
     VkDescriptorSetLayoutBinding blur_input_layout_binding{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                            .descriptorCount = 1,
                                                            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
                                                            .pImmutableSamplers = nullptr};
@@ -328,7 +439,7 @@ bool SiftDetector::initDescriptors()
 
     // Create descriptor pool to allocate descriptor sets (generic)
     std::array<VkDescriptorPoolSize, 2> pool_sizes;
-    pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave * 2};
+    pool_sizes[0] = {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = m_nb_octave * 2};
     pool_sizes[1] = {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = m_nb_octave * 2};
     VkDescriptorPoolCreateInfo descriptor_pool_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                                     .maxSets = m_nb_octave * 2,
@@ -364,9 +475,9 @@ bool SiftDetector::initDescriptors()
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       VkDescriptorImageInfo blur_input_image_info{
-          .sampler = VK_NULL_HANDLE, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+          .sampler = m_sampler, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo blur_work_image_info{
-          .sampler = VK_NULL_HANDLE, .imageView = m_blur_temp_results[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+          .sampler = m_sampler, .imageView = m_blur_temp_results[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo blur_output_image_info{
           .sampler = VK_NULL_HANDLE, .imageView = m_octave_images[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
       std::array<VkWriteDescriptorSet, 2> descriptor_writes;
@@ -376,7 +487,7 @@ bool SiftDetector::initDescriptors()
                               .dstBinding = 0,
                               .dstArrayElement = 0,
                               .descriptorCount = 1,
-                              .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                              .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                               .pImageInfo = &blur_input_image_info,
                               .pBufferInfo = nullptr,
                               .pTexelBufferView = nullptr};
@@ -765,8 +876,9 @@ bool SiftDetector::initDescriptors()
 struct GaussianBlurPushConsts
 {
   uint32_t is_vertical;
-  float sigma;
-  uint32_t offset_y;
+  uint32_t array_layer;
+  uint32_t kernel_size;
+  float kernel[MAX_GAUSSIAN_KERNEL_SIZE];
 };
 
 struct ExtractKeypointsPushConsts
@@ -784,10 +896,16 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule blur_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
+    if (m_use_hardware_interp_kernel)
+    {
+      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlurInterpolated.comp.spv", &blur_shader_module);
+    }
+    else
+    {
+      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
+    }
 
-    VkPushConstantRange push_constant_range{
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(uint32_t) + sizeof(float) + sizeof(uint32_t)};
+    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(GaussianBlurPushConsts)};
     VkPipelineLayoutCreateInfo blur_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                          .setLayoutCount = 1,
                                                          .pSetLayouts = &m_blur_desc_set_layout,
@@ -1057,10 +1175,6 @@ bool SiftDetector::initCommandBuffer()
                      &region, VK_FILTER_LINEAR);
 
       // Blur the first scale
-      // float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in)) / m_scale_factor_min;
-      float sep_kernel_sigma = sqrtf((m_sigma_min * m_sigma_min) - (m_sigma_in * m_sigma_in * 4));
-      // logError(LOG_TAG, "First image sigma %f", sep_kernel_sigma);
-
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1068,7 +1182,8 @@ bool SiftDetector::initCommandBuffer()
         vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                              image_barriers.size(), image_barriers.data());
       }
-      GaussianBlurPushConsts pc{0, sep_kernel_sigma, 0};
+      GaussianBlurPushConsts pc{.is_vertical = 0, .array_layer = 0, .kernel_size = (uint32_t)m_gaussian_kernels[0].size()};
+      memcpy(pc.kernel, m_gaussian_kernels[0].data(), sizeof(float) * m_gaussian_kernels[0].size());
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
@@ -1085,9 +1200,6 @@ bool SiftDetector::initCommandBuffer()
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
                     ceilf(static_cast<float>(m_octave_image_sizes[oct_i].height) / 8.f), 1);
-
-      int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      // logError(LOG_TAG, "Kernel size %d", kernel_size);
     }
     else
     {
@@ -1097,19 +1209,12 @@ bool SiftDetector::initCommandBuffer()
                          .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
                          .dstOffsets = {{0, 0, 0}, {(int32_t)m_octave_image_sizes[oct_i].width, (int32_t)m_octave_image_sizes[oct_i].height, 1}}};
       vkCmdBlitImage(m_command_buffer, m_octave_images[oct_i - 1].getImage(), VK_IMAGE_LAYOUT_GENERAL, m_octave_images[oct_i].getImage(),
-                     VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_LINEAR);
+                     VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_NEAREST);
     }
 
     for (uint32_t scale_i = 1; scale_i < m_nb_scale_per_oct + 3; scale_i++)
     {
       // Gaussian blur from one scale to the other
-      float sig_prev = std::pow(std::pow(2.f, 1.f / 3), static_cast<float>(scale_i - 1)) * m_sigma_min;
-      float sig_total = sig_prev * std::pow(2.f, 1.f / 3);
-      float sep_kernel_sigma = std::sqrt(sig_total * sig_total - sig_prev * sig_prev);
-      // logError(LOG_TAG, "Octave %d scale %d sigma= %f", oct_i, scale_i, sep_kernel_sigma);
-      int kernel_size = static_cast<int>(ceilf(sep_kernel_sigma * 4.f) + 1.f);
-      // logError(LOG_TAG, "Kernel size %d", kernel_size);
-
       {
         std::vector<VkImageMemoryBarrier> image_barriers;
         image_barriers.push_back(m_blur_temp_results[oct_i].getImageMemoryBarrierAndUpdate(VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL));
@@ -1117,7 +1222,8 @@ bool SiftDetector::initCommandBuffer()
         vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
                              image_barriers.size(), image_barriers.data());
       }
-      GaussianBlurPushConsts pc{0, sep_kernel_sigma, (scale_i - 1)};
+      GaussianBlurPushConsts pc{.is_vertical = 0, .array_layer = (scale_i - 1), .kernel_size = (uint32_t)m_gaussian_kernels[scale_i].size()};
+      memcpy(pc.kernel, m_gaussian_kernels[scale_i].data(), sizeof(float) * m_gaussian_kernels[scale_i].size());
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_h_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
@@ -1130,7 +1236,7 @@ bool SiftDetector::initCommandBuffer()
                              image_barriers.size(), image_barriers.data());
       }
       pc.is_vertical = 1;
-      pc.offset_y = scale_i;
+      pc.array_layer = scale_i;
       vkCmdPushConstants(m_command_buffer, m_blur_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianBlurPushConsts), &pc);
       vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_blur_pipeline_layout, 0, 1, &m_blur_v_desc_sets[oct_i], 0, nullptr);
       vkCmdDispatch(m_command_buffer, ceilf(static_cast<float>(m_octave_image_sizes[oct_i].width) / 8.f),
@@ -1425,6 +1531,9 @@ void SiftDetector::terminate()
   VK_NULL_SAFE_DELETE(m_descriptor_pipeline_layout, vkDestroyPipelineLayout(m_device, m_descriptor_pipeline_layout, nullptr));
   VK_NULL_SAFE_DELETE(m_descriptor_desc_pool, vkDestroyDescriptorPool(m_device, m_descriptor_desc_pool, nullptr));
   VK_NULL_SAFE_DELETE(m_descriptor_desc_set_layout, vkDestroyDescriptorSetLayout(m_device, m_descriptor_desc_set_layout, nullptr));
+
+  // Destroy sampler
+  VK_NULL_SAFE_DELETE(m_sampler, vkDestroySampler(m_device, m_sampler, nullptr));
 
   // Destroy memory objects
   // Unmap before

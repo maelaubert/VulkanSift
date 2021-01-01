@@ -11,7 +11,7 @@ class OpenCvDetector : public AbstractSiftDetector
   bool init() override;
   void terminate() override;
   void getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
-                  std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2);
+                  std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2) override;
   float measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter) override;
 
   private:

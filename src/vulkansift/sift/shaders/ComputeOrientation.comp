@@ -82,7 +82,10 @@ void main() {
         int grad_x_idx = int(round(kp.x)) + delta_x;
         int grad_y_idx = int(round(kp.y)) + delta_y;
 
-        float sqrdist2center = delta_x * delta_x + delta_y + delta_y;
+        float subpix_delta_x = (round(kp.x)+float(delta_x))-kp.x;
+        float subpix_delta_y = (round(kp.y)+float(delta_y))-kp.y;
+
+        float sqrdist2center = (subpix_delta_x * subpix_delta_x) + (subpix_delta_y * subpix_delta_y);
 
         // Keep in circular window and in image bounds
         if((grad_x_idx<1 || grad_x_idx>=(image_width-1) || grad_y_idx<1 || grad_y_idx>=(image_height-1)) &&
@@ -102,7 +105,7 @@ void main() {
         else if(orientation > (2.f*PI)) {
             orientation -= 2.f*PI;
         }
-        int bin_index = int((orientation * float(NB_HIST_BINS) / (2.f * PI)) + 0.5f);
+        int bin_index = int((orientation * float(NB_HIST_BINS) / (2.f * PI)));
         if (bin_index < 0) {
             bin_index += NB_HIST_BINS;
         }

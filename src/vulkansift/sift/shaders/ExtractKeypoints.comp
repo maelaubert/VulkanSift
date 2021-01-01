@@ -2,6 +2,7 @@
 
 #define NB_HIST 4
 #define NB_ORI 8
+#define NB_REFINEMENT_STEP 5
 
 struct SIFT_Feat {
   float x;
@@ -118,7 +119,7 @@ void main() {
         if(is_best_in_neighborhood) {
 
             // Refine keypoint
-            bool has_converged = false;
+            bool is_refinement_valid = true;
             float offset_X = 0.f;
             float offset_Y = 0.f;
             float offset_S = 0.f;
@@ -126,16 +127,17 @@ void main() {
             int refined_x = x;
             int refined_y = y;
             int refined_s = s;
+            float gX,gY,gS;
 
-            for (step_cnt = 0; step_cnt < 5; step_cnt++)
+            for (step_cnt = 0; step_cnt < NB_REFINEMENT_STEP; step_cnt++)
             {
                 // Check if point is in image boundaries otherwise stop ?
                 // Compute offset from gradient and Hessian
 
                 // Gradient
-                float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
-                float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
-                float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
+                gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
+                gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
+                gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
                 // Hessian
                 float h11 = getVal(refined_s+1,refined_x,refined_y) + getVal(refined_s-1,refined_x,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
                 float h22 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
@@ -167,30 +169,33 @@ void main() {
                 else
                 {
                     // No solution for this
+                    is_refinement_valid = false;
                     break;
                 }
 
                 if (abs(offset_X) < 0.6f && abs(offset_Y) < 0.6f && abs(offset_S) < 0.6f)
                 {
                     // If all offset under 0.6 we can stop here, extremum is at (pos x_idx,y_idx,scale_idx)
-                    has_converged = true;
                     break;
                 }
-                else
+                else if(step_cnt<(NB_REFINEMENT_STEP-1)) // As in VLFeat do not increment keypoint pos in last iter
                 {
-                    refined_x = refined_x + int(round(offset_X));
-                    refined_y = refined_y + int(round(offset_Y));
-                    refined_s = refined_s + int(round(offset_S));
+                    refined_x += ((offset_X >= 0.6 && refined_x < (image_width - 2)) ? 1 : 0) + ((offset_X <= -0.6 && refined_x > 1) ? -1 : 0);
+                    refined_y += ((offset_Y >= 0.6 && refined_y < (image_height - 2)) ? 1 : 0) + ((offset_Y <= -0.6 && refined_y > 1) ? -1 : 0);
+                    refined_s += ((offset_S >= 0.6 && refined_s < (gl_NumWorkGroups.z + 1)) ? 1 : 0) + ((offset_S <= -0.6 && refined_s > 1) ? -1 : 0);
                 }
             }
-            if(has_converged) {
-                float gS = 0.5f * (getVal(refined_s+1,refined_x,refined_y) - getVal(refined_s-1,refined_x,refined_y));
-                float gX = 0.5f * (getVal(refined_s,refined_x+1,refined_y) - getVal(refined_s,refined_x-1,refined_y));
-                float gY = 0.5f * (getVal(refined_s,refined_x,refined_y+1) - getVal(refined_s,refined_x,refined_y-1));
+            if(is_refinement_valid) {
+                float subpix_x = float(refined_x) + offset_X;
+                float subpix_y = float(refined_y) + offset_Y;
+                float subpix_s = float(refined_s) + offset_S;
                 float new_val = getVal(refined_s,refined_x,refined_y) + 0.5f * (gX * offset_X + gY * offset_Y + gS * offset_S);
-                if(abs(new_val) > push_const.dog_threshold && abs(offset_X)<1.5 && abs(offset_Y)<1.5 && abs(offset_S)<1.5
-                 && refined_x >= 0 && refined_x < image_width && refined_y >= 0 && refined_y < image_height && 
-                refined_s >= 0 && refined_s<=(gl_NumWorkGroups.z+1)) {
+                if( abs(new_val) > push_const.dog_threshold &&                      // DoG threshold
+                    abs(offset_X)<1.5 && abs(offset_Y)<1.5 && abs(offset_S)<1.5 &&  // Final displacement threshold
+                    subpix_x >= 0 && subpix_x < image_width &&                      // Keypoint pos in image 
+                    subpix_y >= 0 && subpix_y < image_height &&                     // and in valid scale
+                    subpix_s >= 0 && subpix_s<=(gl_NumWorkGroups.z+1)) {
+
                     float h11 = getVal(refined_s,refined_x+1,refined_y) + getVal(refined_s,refined_x-1,refined_y) - 2.f * getVal(refined_s,refined_x,refined_y);
                     float h22 = getVal(refined_s,refined_x,refined_y+1) + getVal(refined_s,refined_x,refined_y-1) - 2.f * getVal(refined_s,refined_x,refined_y);
                     float h12 = 0.25f * (getVal(refined_s,refined_x+1,refined_y+1) - getVal(refined_s,refined_x+1,refined_y-1) -
@@ -201,14 +206,14 @@ void main() {
                     {
                         uint idx = atomicAdd(nb_elem, 1);
                         atomicAdd(nb_x_group, 1);
-                        data[idx].x = refined_x;
-                        data[idx].y = refined_y;
-                        data[idx].index_scale = uint(round(float(refined_s)+offset_S));
+                        data[idx].x = subpix_x;
+                        data[idx].y = subpix_y;
+                        data[idx].index_scale = uint(round(subpix_s));
                         data[idx].scale_factor = push_const.scale_factor;
-                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(refined_s+offset_S)/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
+                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, subpix_s/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
                         data[idx].theta = 0.f;
-                        data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
-                        data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
+                        data[idx].orig_x = uint(round(push_const.scale_factor*subpix_x));
+                        data[idx].orig_y = uint(round(push_const.scale_factor*subpix_y));
                         data[idx].value = new_val;
                     }
                 }
