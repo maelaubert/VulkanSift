@@ -14,9 +14,9 @@ void OpenCvDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<Comm
 {
   // Compute SIFT features on both images
   std::vector<cv::KeyPoint> img1_kps, img2_kps;
-  cv::Mat img1_descs, img2_descs;
-  m_detector->detectAndCompute(image1, cv::noArray(), img1_kps, img1_descs);
-  m_detector->detectAndCompute(image2, cv::noArray(), img2_kps, img2_descs);
+  cv::Mat descs1, descs2;
+  m_detector->detectAndCompute(image1, cv::noArray(), img1_kps, descs1);
+  m_detector->detectAndCompute(image2, cv::noArray(), img2_kps, descs2);
 
   kps_img1.clear();
   kps_img2.clear();
@@ -30,18 +30,30 @@ void OpenCvDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<Comm
   }
 
   // Find feature matches
-  std::vector<std::vector<cv::DMatch>> matches;
-  m_matcher->knnMatch(img1_descs, img2_descs, matches, 2);
+  std::vector<std::vector<cv::DMatch>> matches12, matches21;
+  auto matcher = cv::BFMatcher::create(cv::NORM_L2);
+  matcher->knnMatch(descs1, descs2, matches12, 2);
+  matcher->knnMatch(descs2, descs1, matches21, 2);
 
   // Fill Match vector
   matches_img1.clear();
   matches_img2.clear();
-  for (int i = 0; i < matches.size(); i++)
+  for (int i = 0; i < matches12.size(); i++)
   {
-    if ((matches[i][0].distance / matches[i][1].distance) < LOWES_RATIO)
+    int idx_in_2 = matches12[i][0].trainIdx;
+    // Check mutual match
+    if (matches21[idx_in_2][0].trainIdx == i)
     {
-      matches_img1.push_back({img1_kps[matches[i][0].queryIdx].pt.x, img1_kps[matches[i][0].queryIdx].pt.y});
-      matches_img2.push_back({img2_kps[matches[i][0].trainIdx].pt.x, img2_kps[matches[i][0].trainIdx].pt.y});
+      // Check Lowe's ratio in 1
+      if ((matches12[i][0].distance / matches12[i][1].distance) < LOWES_RATIO)
+      {
+        // Check Lowe's ratio in 2
+        if ((matches21[idx_in_2][0].distance / matches21[idx_in_2][1].distance) < LOWES_RATIO)
+        {
+          matches_img1.push_back(kps_img1[matches12[i][0].queryIdx]);
+          matches_img2.push_back(kps_img2[matches12[i][0].trainIdx]);
+        }
+      }
     }
   }
 }

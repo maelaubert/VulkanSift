@@ -102,19 +102,30 @@ void PopSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<Com
   delete res2;
 
   // Find feature matches
-  std::vector<std::vector<cv::DMatch>> matches;
+  std::vector<std::vector<cv::DMatch>> matches12, matches21;
   auto matcher = cv::BFMatcher::create(cv::NORM_L2);
-  matcher->knnMatch(descs1, descs2, matches, 2);
+  matcher->knnMatch(descs1, descs2, matches12, 2);
+  matcher->knnMatch(descs2, descs1, matches21, 2);
 
   // Fill Match vector
   matches_img1.clear();
   matches_img2.clear();
-  for (int i = 0; i < matches.size(); i++)
+  for (int i = 0; i < matches12.size(); i++)
   {
-    if ((matches[i][0].distance / matches[i][1].distance) < LOWES_RATIO)
+    int idx_in_2 = matches12[i][0].trainIdx;
+    // Check mutual match
+    if (matches21[idx_in_2][0].trainIdx == i)
     {
-      matches_img1.push_back(kps_img1[matches[i][0].queryIdx]);
-      matches_img2.push_back(kps_img2[matches[i][0].trainIdx]);
+      // Check Lowe's ratio in 1
+      if ((matches12[i][0].distance / matches12[i][1].distance) < LOWES_RATIO)
+      {
+        // Check Lowe's ratio in 2
+        if ((matches21[idx_in_2][0].distance / matches21[idx_in_2][1].distance) < LOWES_RATIO)
+        {
+          matches_img1.push_back(kps_img1[matches12[i][0].queryIdx]);
+          matches_img2.push_back(kps_img2[matches12[i][0].trainIdx]);
+        }
+      }
     }
   }
 }
@@ -123,6 +134,7 @@ float PopSiftDetector::measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_i
 {
   popsift::Config popsift_conf{};
   popsift_conf.setNormMode(popsift::Config::NormMode::Classic);
+  popsift_conf.setGaussMode(popsift::Config::GaussMode::VLFeat_Relative);
   PopSift detector{popsift_conf, popsift::Config::ProcessingMode::ExtractingMode, PopSift::ImageMode::ByteImages};
 
   uint8_t *img_buf = allocAndFillGreyBufferFromCvMat(image);

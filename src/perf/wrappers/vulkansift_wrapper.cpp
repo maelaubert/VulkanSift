@@ -75,26 +75,40 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
   kps_img2.clear();
   for (auto kp : img1_kps)
   {
-    kps_img1.push_back({(float)kp.orig_x, (float)kp.orig_y});
+    kps_img1.push_back({kp.x * kp.scale_factor, kp.y * kp.scale_factor});
   }
   for (auto kp : img2_kps)
   {
-    kps_img2.push_back({(float)kp.orig_x, (float)kp.orig_y});
+    kps_img2.push_back({kp.x * kp.scale_factor, kp.y * kp.scale_factor});
   }
 
+  std::cout << kps_img1.size() << std::endl;
+  std::cout << kps_img2.size() << std::endl;
+
   // Find feature matches
-  std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info;
-  m_matcher.compute(img1_kps, img2_kps, matches_info);
+  std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info12, matches_info21;
+  m_matcher.compute(img1_kps, img2_kps, matches_info12);
+  m_matcher.compute(img2_kps, img1_kps, matches_info21);
 
   // Fill Match vector
   matches_img1.clear();
   matches_img2.clear();
-  for (int i = 0; i < matches_info.size(); i++)
+  for (int i = 0; i < matches_info12.size(); i++)
   {
-    if ((matches_info[i].dist_ab1 / matches_info[i].dist_ab2) < LOWES_RATIO)
+    int idx_in_2 = matches_info12[i].idx_b1;
+    // Check mutual match
+    if (matches_info21[idx_in_2].idx_b1 == i)
     {
-      matches_img1.push_back({(float)img1_kps[matches_info[i].idx_a].orig_x, (float)img1_kps[matches_info[i].idx_a].orig_y});
-      matches_img2.push_back({(float)img2_kps[matches_info[i].idx_b1].orig_x, (float)img2_kps[matches_info[i].idx_b1].orig_y});
+      // Check Lowe's ratio in 1
+      if ((matches_info12[i].dist_ab1 / matches_info12[i].dist_ab2) < LOWES_RATIO)
+      {
+        // Check Lowe's ratio in 2
+        if ((matches_info21[idx_in_2].dist_ab1 / matches_info21[idx_in_2].dist_ab2) < LOWES_RATIO)
+        {
+          matches_img1.push_back(kps_img1[matches_info12[i].idx_a]);
+          matches_img2.push_back(kps_img2[matches_info12[i].idx_b1]);
+        }
+      }
     }
   }
 }
