@@ -121,8 +121,8 @@ void main() {
     for(int pix_idx=local_id; pix_idx<(box_size*box_size); pix_idx+=LOCAL_SIZE_X) {
         int delta_y = (pix_idx/box_size)-int_radius;
         int delta_x = (pix_idx%box_size)-int_radius;
-        int idx_x = int(kp.x) + delta_x;
-        int idx_y = int(kp.y) + delta_y;
+        int idx_x = int(round(kp.x)) + delta_x;
+        int idx_y = int(round(kp.y)) + delta_y;
 
         if(idx_x<1 || idx_x>=(image_width-1) || idx_y<1 || idx_y>=(image_height-1)) {
             continue;
@@ -134,8 +134,15 @@ void main() {
 
         float gradX = 0.5f * (getImVal(int(kp.index_scale), idx_x+1, idx_y) - getImVal(int(kp.index_scale), idx_x-1, idx_y));
         float gradY = 0.5f * (getImVal(int(kp.index_scale), idx_x, idx_y+1) - getImVal(int(kp.index_scale), idx_x, idx_y-1));
-        float orientation = atan(gradY,gradX)-kp.theta;
+        float orientation = atan(gradY,gradX);
         // Cap orientation in [0, 2xPI]
+        if(orientation<0) {
+            orientation += 2.f*PI;
+        }
+        else if(orientation > (2.f*PI)) {
+            orientation -= 2.f*PI;
+        }
+        orientation = orientation - kp.theta;
         if(orientation<0) {
             orientation += 2.f*PI;
         }
