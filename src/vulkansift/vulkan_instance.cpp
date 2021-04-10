@@ -280,6 +280,8 @@ bool VulkanInstance::findPhysicalDevice()
     }
   }
 
+  m_physical_device_props = device_properties;
+
   return true;
 }
 

@@ -41,6 +41,10 @@ class VulkanInstance
   uint32_t getNbSwapchainImage() { return m_nb_swapchain_image; }
   std::vector<VkFramebuffer> getSwapchainFramebuffers() { return m_swapchain_framebuffers; }
 
+  // Vulkan device info
+  VkPhysicalDeviceProperties getVkPhysicalDeviceProperties() { return m_physical_device_props; }
+
+  // Timestamps related functions
   bool isTimestampQuerySupported() { return m_ts_query_supported; }
   float getTimestampQueryPeriodNs() { return m_ts_query_period; }
   uint64_t getTimestampBitMask() { return m_ts_bitmask; }
@@ -114,6 +118,8 @@ class VulkanInstance
 
   VkRenderPass m_render_pass = VK_NULL_HANDLE;
   std::vector<VkFramebuffer> m_swapchain_framebuffers;
+
+  VkPhysicalDeviceProperties m_physical_device_props;
 
   bool m_ts_query_supported = false;
   float m_ts_query_period = 0.f;

@@ -43,6 +43,7 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
       float nb_curr_oct = (((float)m_max_nb_sift * powf(0.5f, i + 1)) / sum) * (float)m_max_nb_sift;
+      // float nb_curr_oct = (m_octave_image_sizes[i].width / 3) * (m_octave_image_sizes[i].height / 3) * m_nb_scale_per_oct * 3;
       m_max_nb_feat_per_octave.push_back(nb_curr_oct);
     }
   }
@@ -59,6 +60,8 @@ bool SiftDetector::init(VulkanInstance *vulkan_instance, const int image_width, 
     logError(LOG_TAG, "VulkanManager returned a NULL physical device.");
     return false;
   }
+  m_physical_device_props = m_vulkan_instance->getVkPhysicalDeviceProperties();
+
   m_device = m_vulkan_instance->getVkDevice();
   if (m_device == VK_NULL_HANDLE)
   {
@@ -1120,16 +1123,10 @@ bool SiftDetector::initCommandBuffer()
 
   // Clear data
   beginMarkerRegion(m_command_buffer, "Clear data");
-  VkClearColorValue clear_color{{0.0, 0.0, 0.0, 0.0}};
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(m_command_buffer, m_blur_temp_results[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
-    range.layerCount = m_nb_scale_per_oct + 3;
-    vkCmdClearColorImage(m_command_buffer, m_octave_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
-    range.layerCount = m_nb_scale_per_oct + 2;
-    vkCmdClearColorImage(m_command_buffer, m_octave_DoG_images[i].getImage(), VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range);
-    vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 0);
+    // Only reset the indirect dispatch buffers and the detected SIFT feature counter
+    vkCmdFillBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
     vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, VK_WHOLE_SIZE, 1);
     vkCmdFillBuffer(m_command_buffer, m_indispatch_orientation_buffers[i].getBuffer(), 0, sizeof(uint32_t), 0);
   }
@@ -1396,8 +1393,9 @@ bool SiftDetector::initCommandBuffer()
   }
   endMarkerRegion(m_command_buffer);
 
-  beginMarkerRegion(m_command_buffer, "CopySiftFeats");
+  beginMarkerRegion(m_command_buffer, "CopySiftHeader");
   {
+    // Only copy the number of detected SIFT features to the staging buffer (accessible by host)
     std::vector<VkBufferMemoryBarrier> buffer_barriers;
     for (uint32_t i = 0; i < m_nb_octave; i++)
     {
@@ -1409,26 +1407,8 @@ bool SiftDetector::initCommandBuffer()
   }
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * m_max_nb_feat_per_octave[i] + sizeof(uint32_t)};
+    VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(uint32_t)};
     vkCmdCopyBuffer(m_command_buffer, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &sift_copy_region);
-  }
-  {
-    std::vector<VkBufferMemoryBarrier> buffer_barriers;
-    for (uint32_t i = 0; i < m_nb_octave; i++)
-    {
-      buffer_barriers.push_back(m_sift_keypoints_buffers[i].getBufferMemoryBarrierAndUpdate(0));
-    }
-    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, buffer_barriers.size(),
-                         buffer_barriers.data(), 0, nullptr);
-  }
-  {
-    std::vector<VkBufferMemoryBarrier> buffer_barriers;
-    for (uint32_t i = 0; i < m_nb_octave; i++)
-    {
-      buffer_barriers.push_back(m_sift_staging_out_buffers[i].getBufferMemoryBarrierAndUpdate(VK_ACCESS_HOST_READ_BIT));
-    }
-    vkCmdPipelineBarrier(m_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, buffer_barriers.size(),
-                         buffer_barriers.data(), 0, nullptr);
   }
   endMarkerRegion(m_command_buffer);
 
@@ -1465,27 +1445,61 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
 
   vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
 
+  // TODO: CPU get info on number of features detected, create a minimal GPU->STAGING copy command buffer, then copy on CPU
+
   // Copy SIFT features
   sift_feats.clear();
 
   int total_nb_sift = 0;
   std::vector<int> nb_feat_per_octave;
 
+  // For each octave, read the number of detected features from the GPU memory
+  // Only invalidate the first 4 bytes of the buffer (number of features detected) here since that's the only thing we read
+  VkDeviceSize header_range_size =
+      (sizeof(uint32_t) / m_physical_device_props.limits.nonCoherentAtomSize + 1) * m_physical_device_props.limits.nonCoherentAtomSize;
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkMappedMemoryRange mem_range_output{
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_sift_staging_out_buffers[i].getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
+    VkMappedMemoryRange mem_range_output{.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                                         .memory = m_sift_staging_out_buffers[i].getBufferMemory(),
+                                         .offset = 0u,
+                                         .size = header_range_size};
     vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
+
     uint32_t nb_sift_feat = ((uint32_t *)m_output_sift_ptr[i])[0];
     nb_sift_feat = std::min(nb_sift_feat, m_max_nb_feat_per_octave[i]);
     nb_feat_per_octave.push_back(nb_sift_feat);
     total_nb_sift += nb_sift_feat;
   }
+
   sift_feats.resize(total_nb_sift);
 
+  // Copy only the right number of features to the GPU staging buffer
+  bool copy_cmd_res = VulkanUtils::submitCommandsAndWait(m_device, m_queue, m_command_pool, [&](VkCommandBuffer cmdbuf) {
+    beginMarkerRegion(cmdbuf, "CopySiftFeats");
+    for (uint32_t i = 0; i < m_nb_octave; i++)
+    {
+      VkBufferCopy sift_copy_region{.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(SIFT_Feature) * nb_feat_per_octave[i] + sizeof(uint32_t)};
+      vkCmdCopyBuffer(cmdbuf, m_sift_keypoints_buffers[i].getBuffer(), m_sift_staging_out_buffers[i].getBuffer(), 1, &sift_copy_region);
+    }
+    endMarkerRegion(cmdbuf);
+  });
+  if (!copy_cmd_res)
+  {
+    logError(LOG_TAG, "Failed to copy SIFT features");
+    return false;
+  }
+
+  // Read the SIFT features from the staging buffer
   int vec_offset = 0;
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
+    // Only invalidate what we are going to read (possible since we know exactly the number of feature in each buffer)
+    VkDeviceSize min_range_size =
+        ((sizeof(SIFT_Feature) * nb_feat_per_octave[i] + sizeof(uint32_t)) / m_physical_device_props.limits.nonCoherentAtomSize + 1) *
+        m_physical_device_props.limits.nonCoherentAtomSize;
+    VkMappedMemoryRange mem_range_output{
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_sift_staging_out_buffers[i].getBufferMemory(), .offset = 0u, .size = min_range_size};
+    vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
     SIFT_Feature *sift_feats_ptr = (SIFT_Feature *)((uint32_t *)(m_output_sift_ptr[i]) + 1);
     memcpy(sift_feats.data() + vec_offset, sift_feats_ptr, sizeof(SIFT_Feature) * nb_feat_per_octave[i]);
     vec_offset += nb_feat_per_octave[i];

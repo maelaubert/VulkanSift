@@ -34,6 +34,7 @@ class SiftDetector
   VulkanInstance *m_vulkan_instance = nullptr;
   VkDevice m_device = VK_NULL_HANDLE;
   VkPhysicalDevice m_physical_device = VK_NULL_HANDLE;
+  VkPhysicalDeviceProperties m_physical_device_props;
   VkQueue m_queue = VK_NULL_HANDLE;
   uint32_t m_queue_family_index = 0u;
   VkQueue m_async_queue = VK_NULL_HANDLE;
@@ -64,7 +65,7 @@ class SiftDetector
 
   bool m_use_hardware_interp_kernel = true;
 
-  uint32_t m_max_nb_sift = 50000;
+  uint32_t m_max_nb_sift = 800000;
   std::vector<uint32_t> m_max_nb_feat_per_octave;
 
   std::vector<std::vector<float>> m_gaussian_kernels;
