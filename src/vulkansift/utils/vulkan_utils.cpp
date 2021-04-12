@@ -297,6 +297,58 @@ bool Buffer::create(VkDevice device, VkPhysicalDevice physical_device, VkDeviceS
   return true;
 }
 
+bool Buffer::mapMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **ppointer)
+{
+  if (vkMapMemory(device, m_buffer_memory, offset, size, flags, ppointer) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "vkMapMemory failure");
+    return false;
+  }
+  else
+  {
+    is_mapped = true;
+    return true;
+  }
+}
+
+void Buffer::unmapMemory(VkDevice device)
+{
+  // Unmap memory if previously mapped
+  if (is_mapped)
+  {
+    vkUnmapMemory(device, m_buffer_memory);
+    is_mapped = false;
+  }
+}
+
+bool Buffer::invalidateMappedMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size)
+{
+  VkMappedMemoryRange mem_range{.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_buffer_memory, .offset = offset, .size = size};
+  if (vkInvalidateMappedMemoryRanges(device, 1, &mem_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "vkInvalidateMappedMemoryRanges failure");
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+bool Buffer::flushMappedMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size)
+{
+  VkMappedMemoryRange mem_range{.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_buffer_memory, .offset = offset, .size = size};
+  if (vkFlushMappedMemoryRanges(device, 1, &mem_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "vkFlushMappedMemoryRanges failure");
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
 VkBufferMemoryBarrier Buffer::getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask)
 {
   VkBufferMemoryBarrier barrier{.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -313,6 +365,9 @@ VkBufferMemoryBarrier Buffer::getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_
 
 void Buffer::destroy(VkDevice device)
 {
+  // If mapped memory, unmap before destroying
+  unmapMemory(device);
+
   // Destroy buffer and memory
   if (m_buffer != VK_NULL_HANDLE)
   {
@@ -379,6 +434,52 @@ bool submitCommandsAndWait(VkDevice device, VkQueue queue, VkCommandPool pool, s
   vkFreeCommandBuffers(device, pool, 1, &command_buffer);
   return true;
 }
+
+bool createComputePipeline(VkDevice device, VkShaderModule shader_module, VkDescriptorSetLayout descriptor_set_layout, uint32_t push_constant_size,
+                           VkPipelineLayout *pipeline_layout, VkPipeline *pipeline)
+{
+  // Setup compute shader module stage
+  VkPipelineShaderStageCreateInfo pipeline_shader_stage{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = shader_module, .pName = "main"};
+
+  // Setup pipeline layout
+  VkPipelineLayoutCreateInfo pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                  .setLayoutCount = 1,
+                                                  .pSetLayouts = &descriptor_set_layout,
+                                                  .pushConstantRangeCount = 0,
+                                                  .pPushConstantRanges = nullptr};
+  VkPushConstantRange push_constant_range;
+  if (push_constant_size > 0)
+  {
+    // Set push constant properties if needed
+    push_constant_range = {.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = push_constant_size};
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+  }
+
+  if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, pipeline_layout) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "vkCreatePipelineLayout failure");
+    return false;
+  }
+
+  // Create pipeline
+  VkComputePipelineCreateInfo pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                               .pNext = nullptr,
+                                               .flags = 0,
+                                               .stage = pipeline_shader_stage,
+                                               .layout = *pipeline_layout,
+                                               .basePipelineHandle = VK_NULL_HANDLE,
+                                               .basePipelineIndex = -1};
+  if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, pipeline) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "vkCreateComputePipelines failure");
+    return false;
+  }
+
+  return true;
+}
+
 ////////////////////////////////////////////////////////////////////////
 
 } // namespace VulkanUtils

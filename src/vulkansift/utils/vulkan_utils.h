@@ -63,8 +63,14 @@ class Buffer
 {
   public:
   bool create(VkDevice device, VkPhysicalDevice physical_device, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memory_properties);
-  VkBufferMemoryBarrier getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask);
   void destroy(VkDevice device);
+
+  bool mapMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **ppointer);
+  void unmapMemory(VkDevice device);
+  bool invalidateMappedMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size);
+  bool flushMappedMemory(VkDevice device, VkDeviceSize offset, VkDeviceSize size);
+
+  VkBufferMemoryBarrier getBufferMemoryBarrierAndUpdate(VkAccessFlags dst_access_mask);
 
   VkBuffer getBuffer() { return m_buffer; }
   VkDeviceMemory getBufferMemory() { return m_buffer_memory; }
@@ -74,6 +80,7 @@ class Buffer
   VkBuffer m_buffer = VK_NULL_HANDLE;
   VkDeviceMemory m_buffer_memory = VK_NULL_HANDLE;
   VkDeviceSize m_buffer_size = 0u;
+  bool is_mapped = false;
 
   VkAccessFlags m_buffer_access_mask = 0;
   VkPipelineStageFlags m_buffer_stage_mask = 0;
@@ -83,6 +90,8 @@ class Buffer
 // MISC
 ////////////////////////////////////////////////////////////////////////
 bool submitCommandsAndWait(VkDevice device, VkQueue queue, VkCommandPool pool, std::function<void(VkCommandBuffer cmd_buff)> commands_func);
+bool createComputePipeline(VkDevice device, VkShaderModule shader_module, VkDescriptorSetLayout descriptor_set_layout, uint32_t push_constant_size,
+                           VkPipelineLayout *pipeline_layout, VkPipeline *pipeline);
 
 }; // namespace VulkanUtils
 

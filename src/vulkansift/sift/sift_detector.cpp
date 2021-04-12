@@ -362,8 +362,8 @@ bool SiftDetector::initMemory()
     return false;
   }
 
-  if (vkMapMemory(m_device, m_input_image_staging_in_buffer.getBufferMemory(), 0, m_image_width * m_image_height * sizeof(uint8_t), 0,
-                  &m_input_image_ptr) != VK_SUCCESS)
+  // Map memory for CPU side access (to provide input image and retrieve output data)
+  if (!m_input_image_staging_in_buffer.mapMemory(m_device, 0, m_image_width * m_image_height * sizeof(uint8_t), 0, &m_input_image_ptr))
   {
     logError(LOG_TAG, "Failed to map input buffer memory.");
     return false;
@@ -372,7 +372,7 @@ bool SiftDetector::initMemory()
   m_output_sift_ptr.resize(m_nb_octave);
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    if (vkMapMemory(m_device, m_sift_staging_out_buffers[i].getBufferMemory(), 0, VK_WHOLE_SIZE, 0, &m_output_sift_ptr[i]) != VK_SUCCESS)
+    if (!m_sift_staging_out_buffers[i].mapMemory(m_device, 0, VK_WHOLE_SIZE, 0, &m_output_sift_ptr[i]))
     {
       logError(LOG_TAG, "Failed to map output buffer memory.");
       return false;
@@ -901,38 +901,22 @@ bool SiftDetector::initPipelines()
     VkShaderModule blur_shader_module;
     if (m_use_hardware_interp_kernel)
     {
-      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlurInterpolated.comp.spv", &blur_shader_module);
+      if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlurInterpolated.comp.spv", &blur_shader_module))
+      {
+        logError(LOG_TAG, "Failed to create GaussianBlurInterpolated shader module");
+        return false;
+      }
     }
-    else
+    else if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module))
     {
-      VulkanUtils::Shader::createShaderModule(m_device, "shaders/GaussianBlur.comp.spv", &blur_shader_module);
-    }
-
-    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(GaussianBlurPushConsts)};
-    VkPipelineLayoutCreateInfo blur_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                                         .setLayoutCount = 1,
-                                                         .pSetLayouts = &m_blur_desc_set_layout,
-                                                         .pushConstantRangeCount = 1,
-                                                         .pPushConstantRanges = &push_constant_range};
-    if (vkCreatePipelineLayout(m_device, &blur_pipeline_layout_info, nullptr, &m_blur_pipeline_layout) != VK_SUCCESS)
-    {
-      logError(LOG_TAG, "Failed to create GaussianBlur pipeline layout");
+      logError(LOG_TAG, "Failed to create GaussianBlur shader module");
       return false;
     }
-
-    VkPipelineShaderStageCreateInfo blur_pipeline_shader_stage{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = blur_shader_module, .pName = "main"};
-
-    VkComputePipelineCreateInfo blur_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                      .pNext = nullptr,
-                                                      .flags = 0,
-                                                      .stage = blur_pipeline_shader_stage,
-                                                      .layout = m_blur_pipeline_layout,
-                                                      .basePipelineHandle = VK_NULL_HANDLE,
-                                                      .basePipelineIndex = -1};
-    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &blur_pipeline_info, nullptr, &m_blur_pipeline) != VK_SUCCESS)
+    if (!VulkanUtils::createComputePipeline(m_device, blur_shader_module, m_blur_desc_set_layout, sizeof(GaussianBlurPushConsts), &m_blur_pipeline_layout,
+                                            &m_blur_pipeline))
     {
       logError(LOG_TAG, "Failed to create GaussianBlur pipeline");
+      vkDestroyShaderModule(m_device, blur_shader_module, nullptr);
       return false;
     }
     vkDestroyShaderModule(m_device, blur_shader_module, nullptr);
@@ -942,31 +926,15 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule dog_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/DifferenceOfGaussian.comp.spv", &dog_shader_module);
-    VkPipelineLayoutCreateInfo dog_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                                        .setLayoutCount = 1,
-                                                        .pSetLayouts = &m_dog_desc_set_layout,
-                                                        .pushConstantRangeCount = 0,
-                                                        .pPushConstantRanges = nullptr};
-    if (vkCreatePipelineLayout(m_device, &dog_pipeline_layout_info, nullptr, &m_dog_pipeline_layout) != VK_SUCCESS)
+    if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/DifferenceOfGaussian.comp.spv", &dog_shader_module))
     {
-      logError(LOG_TAG, "Failed to create DifferenceOfGaussian pipeline layout");
+      logError(LOG_TAG, "Failed to create DifferenceOfGaussian shader module");
       return false;
     }
-
-    VkPipelineShaderStageCreateInfo dog_pipeline_shader_stage{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = dog_shader_module, .pName = "main"};
-
-    VkComputePipelineCreateInfo dog_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                     .pNext = nullptr,
-                                                     .flags = 0,
-                                                     .stage = dog_pipeline_shader_stage,
-                                                     .layout = m_dog_pipeline_layout,
-                                                     .basePipelineHandle = VK_NULL_HANDLE,
-                                                     .basePipelineIndex = -1};
-    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &dog_pipeline_info, nullptr, &m_dog_pipeline) != VK_SUCCESS)
+    if (!VulkanUtils::createComputePipeline(m_device, dog_shader_module, m_dog_desc_set_layout, 0, &m_dog_pipeline_layout, &m_dog_pipeline))
     {
       logError(LOG_TAG, "Failed to create DifferenceOfGaussian pipeline");
+      vkDestroyShaderModule(m_device, dog_shader_module, nullptr);
       return false;
     }
     vkDestroyShaderModule(m_device, dog_shader_module, nullptr);
@@ -976,35 +944,16 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule extractkpts_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ExtractKeypoints.comp.spv", &extractkpts_shader_module);
-
-    VkPushConstantRange push_constant_range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0u, .size = sizeof(ExtractKeypointsPushConsts)};
-    VkPipelineLayoutCreateInfo extractkpts_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                                                .setLayoutCount = 1,
-                                                                .pSetLayouts = &m_extractkpts_desc_set_layout,
-                                                                .pushConstantRangeCount = 1,
-                                                                .pPushConstantRanges = &push_constant_range};
-    if (vkCreatePipelineLayout(m_device, &extractkpts_pipeline_layout_info, nullptr, &m_extractkpts_pipeline_layout) != VK_SUCCESS)
+    if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/ExtractKeypoints.comp.spv", &extractkpts_shader_module))
     {
-      logError(LOG_TAG, "Failed to create ExtractKeypoints pipeline layout");
+      logError(LOG_TAG, "Failed to create ExtractKeypoints shader module");
       return false;
     }
-
-    VkPipelineShaderStageCreateInfo extractkpts_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                                      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                      .module = extractkpts_shader_module,
-                                                                      .pName = "main"};
-
-    VkComputePipelineCreateInfo extractkpts_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                             .pNext = nullptr,
-                                                             .flags = 0,
-                                                             .stage = extractkpts_pipeline_shader_stage,
-                                                             .layout = m_extractkpts_pipeline_layout,
-                                                             .basePipelineHandle = VK_NULL_HANDLE,
-                                                             .basePipelineIndex = -1};
-    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &extractkpts_pipeline_info, nullptr, &m_extractkpts_pipeline) != VK_SUCCESS)
+    if (!VulkanUtils::createComputePipeline(m_device, extractkpts_shader_module, m_extractkpts_desc_set_layout, sizeof(ExtractKeypointsPushConsts),
+                                            &m_extractkpts_pipeline_layout, &m_extractkpts_pipeline))
     {
       logError(LOG_TAG, "Failed to create ExtractKeypoints pipeline");
+      vkDestroyShaderModule(m_device, extractkpts_shader_module, nullptr);
       return false;
     }
     vkDestroyShaderModule(m_device, extractkpts_shader_module, nullptr);
@@ -1014,33 +963,16 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule orientation_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeOrientation.comp.spv", &orientation_shader_module);
-    VkPipelineLayoutCreateInfo orientation_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                                                .setLayoutCount = 1,
-                                                                .pSetLayouts = &m_orientation_desc_set_layout,
-                                                                .pushConstantRangeCount = 0,
-                                                                .pPushConstantRanges = nullptr};
-    if (vkCreatePipelineLayout(m_device, &orientation_pipeline_layout_info, nullptr, &m_orientation_pipeline_layout) != VK_SUCCESS)
+    if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeOrientation.comp.spv", &orientation_shader_module))
     {
-      logError(LOG_TAG, "Failed to create ComputeOrientation pipeline layout");
+      logError(LOG_TAG, "Failed to create ComputeOrientation shader module");
       return false;
     }
-
-    VkPipelineShaderStageCreateInfo orientation_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                                      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                      .module = orientation_shader_module,
-                                                                      .pName = "main"};
-
-    VkComputePipelineCreateInfo orientation_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                             .pNext = nullptr,
-                                                             .flags = 0,
-                                                             .stage = orientation_pipeline_shader_stage,
-                                                             .layout = m_orientation_pipeline_layout,
-                                                             .basePipelineHandle = VK_NULL_HANDLE,
-                                                             .basePipelineIndex = -1};
-    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &orientation_pipeline_info, nullptr, &m_orientation_pipeline) != VK_SUCCESS)
+    if (!VulkanUtils::createComputePipeline(m_device, orientation_shader_module, m_orientation_desc_set_layout, 0, &m_orientation_pipeline_layout,
+                                            &m_orientation_pipeline))
     {
       logError(LOG_TAG, "Failed to create ComputeOrientation pipeline");
+      vkDestroyShaderModule(m_device, orientation_shader_module, nullptr);
       return false;
     }
     vkDestroyShaderModule(m_device, orientation_shader_module, nullptr);
@@ -1050,33 +982,16 @@ bool SiftDetector::initPipelines()
   //////////////////////////////////////
   {
     VkShaderModule descriptor_shader_module;
-    VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeDescriptors.comp.spv", &descriptor_shader_module);
-    VkPipelineLayoutCreateInfo descriptor_pipeline_layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                                               .setLayoutCount = 1,
-                                                               .pSetLayouts = &m_descriptor_desc_set_layout,
-                                                               .pushConstantRangeCount = 0,
-                                                               .pPushConstantRanges = nullptr};
-    if (vkCreatePipelineLayout(m_device, &descriptor_pipeline_layout_info, nullptr, &m_descriptor_pipeline_layout) != VK_SUCCESS)
+    if (!VulkanUtils::Shader::createShaderModule(m_device, "shaders/ComputeDescriptors.comp.spv", &descriptor_shader_module))
     {
-      logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline layout");
+      logError(LOG_TAG, "Failed to create ComputeDescriptors shader module");
       return false;
     }
-
-    VkPipelineShaderStageCreateInfo descriptor_pipeline_shader_stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                                     .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                     .module = descriptor_shader_module,
-                                                                     .pName = "main"};
-
-    VkComputePipelineCreateInfo descriptor_pipeline_info = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                            .pNext = nullptr,
-                                                            .flags = 0,
-                                                            .stage = descriptor_pipeline_shader_stage,
-                                                            .layout = m_descriptor_pipeline_layout,
-                                                            .basePipelineHandle = VK_NULL_HANDLE,
-                                                            .basePipelineIndex = -1};
-    if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &descriptor_pipeline_info, nullptr, &m_descriptor_pipeline) != VK_SUCCESS)
+    if (!VulkanUtils::createComputePipeline(m_device, descriptor_shader_module, m_descriptor_desc_set_layout, 0, &m_descriptor_pipeline_layout,
+                                            &m_descriptor_pipeline))
     {
       logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline");
+      vkDestroyShaderModule(m_device, descriptor_shader_module, nullptr);
       return false;
     }
     vkDestroyShaderModule(m_device, descriptor_shader_module, nullptr);
@@ -1424,11 +1339,9 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
 {
   vkResetFences(m_device, 1, &m_fence);
   // Copy image
-  VkMappedMemoryRange mem_range{
-      .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_input_image_staging_in_buffer.getBufferMemory(), .offset = 0u, .size = VK_WHOLE_SIZE};
-  vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range);
+  m_input_image_staging_in_buffer.invalidateMappedMemory(m_device, 0, VK_WHOLE_SIZE);
   memcpy(m_input_image_ptr, pixel_buffer, m_image_width * m_image_height * sizeof(uint8_t));
-  vkFlushMappedMemoryRanges(m_device, 1, &mem_range);
+  m_input_image_staging_in_buffer.flushMappedMemory(m_device, 0, VK_WHOLE_SIZE);
 
   {
     VkSubmitInfo submit_info{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1459,11 +1372,7 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
       (sizeof(uint32_t) / m_physical_device_props.limits.nonCoherentAtomSize + 1) * m_physical_device_props.limits.nonCoherentAtomSize;
   for (uint32_t i = 0; i < m_nb_octave; i++)
   {
-    VkMappedMemoryRange mem_range_output{.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                                         .memory = m_sift_staging_out_buffers[i].getBufferMemory(),
-                                         .offset = 0u,
-                                         .size = header_range_size};
-    vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
+    m_sift_staging_out_buffers[i].invalidateMappedMemory(m_device, 0, header_range_size);
 
     uint32_t nb_sift_feat = ((uint32_t *)m_output_sift_ptr[i])[0];
     nb_sift_feat = std::min(nb_sift_feat, m_max_nb_feat_per_octave[i]);
@@ -1497,9 +1406,7 @@ bool SiftDetector::compute(uint8_t *pixel_buffer, std::vector<SIFT_Feature> &sif
     VkDeviceSize min_range_size =
         ((sizeof(SIFT_Feature) * nb_feat_per_octave[i] + sizeof(uint32_t)) / m_physical_device_props.limits.nonCoherentAtomSize + 1) *
         m_physical_device_props.limits.nonCoherentAtomSize;
-    VkMappedMemoryRange mem_range_output{
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .memory = m_sift_staging_out_buffers[i].getBufferMemory(), .offset = 0u, .size = min_range_size};
-    vkInvalidateMappedMemoryRanges(m_device, 1, &mem_range_output);
+    m_sift_staging_out_buffers[i].invalidateMappedMemory(m_device, 0, min_range_size);
     SIFT_Feature *sift_feats_ptr = (SIFT_Feature *)((uint32_t *)(m_output_sift_ptr[i]) + 1);
     memcpy(sift_feats.data() + vec_offset, sift_feats_ptr, sizeof(SIFT_Feature) * nb_feat_per_octave[i]);
     vec_offset += nb_feat_per_octave[i];
@@ -1517,7 +1424,7 @@ void SiftDetector::terminate()
   // Destroy sync objects and command buffers
 
   VK_NULL_SAFE_DELETE(m_fence, vkDestroyFence(m_device, m_fence, nullptr));
-  vkFreeCommandBuffers(m_device, m_command_pool, 1, &m_command_buffer);
+  VK_NULL_SAFE_DELETE(m_command_buffer, vkFreeCommandBuffers(m_device, m_command_pool, 1, &m_command_buffer));
 
   // Destroy pipelines and descriptors
   // GaussianBlur
@@ -1550,13 +1457,7 @@ void SiftDetector::terminate()
   VK_NULL_SAFE_DELETE(m_sampler, vkDestroySampler(m_device, m_sampler, nullptr));
 
   // Destroy memory objects
-  // Unmap before
-  vkUnmapMemory(m_device, m_input_image_staging_in_buffer.getBufferMemory());
-  for (uint32_t i = 0; i < m_nb_octave; i++)
-  {
-    vkUnmapMemory(m_device, m_sift_staging_out_buffers[i].getBufferMemory());
-  }
-
+  // Memory is automatically unmapped if needed in the destroy function
   m_input_image.destroy(m_device);
   m_input_image_staging_in_buffer.destroy(m_device);
   for (uint32_t i = 0; i < m_nb_octave; i++)

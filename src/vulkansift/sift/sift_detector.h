@@ -102,8 +102,8 @@ class SiftDetector
   ////////////////////
   // Commands related
   ////////////////////
-  VkCommandBuffer m_command_buffer;
-  VkCommandPool m_command_pool;
+  VkCommandBuffer m_command_buffer = VK_NULL_HANDLE;
+  VkCommandPool m_command_pool = VK_NULL_HANDLE;
 
   ////////////////////
   // Pipelines and descriptors
