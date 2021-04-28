@@ -1,0 +1,3 @@
+[submodule "src/vulkansift/vkenv"]
+	path = src/vulkansift/vkenv
+	url = git@github.com:maelaubert/vkenv.git
