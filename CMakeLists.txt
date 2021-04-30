@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(VulkanSift DESCRIPTION "SIFT C++ library" LANGUAGES CXX)
+project(VulkanSift DESCRIPTION "SIFT C++ library" LANGUAGES CXX C)
 
 
 #####################################################################################"
@@ -27,32 +27,32 @@ endif()
 #####################################################################################
 # VulkanSift library sources
 set(VULKANSIFT_LIB_SRC
-    src/vulkansift/vulkansift.cpp
-    src/vulkansift/vulkan_instance.cpp
-    src/vulkansift/sift/sift_detector.cpp
-    src/vulkansift/sift/sift_matcher.cpp
-    src/vulkansift/viz/vulkan_viewer.cpp
-    src/vulkansift/utils/vulkan_utils.cpp
-    src/vulkansift/utils/vulkan_loader.cpp
-    src/vulkansift/utils/GLFW_loader.cpp
+    src/vulkansift/vulkansift.c
+    # relevant vkenv files
+    src/vulkansift/vkenv/vulkan_loader.c
+    src/vulkansift/vkenv/vulkan_device.c
+    src/vulkansift/vkenv/vulkan_utils.c
+    src/vulkansift/vkenv/logger.c
+    # TODO: only needed for GPU debugging, to add only if needed
+    src/vulkansift/vkenv/vulkan_swapchain.c
+    src/vulkansift/vkenv/debug_presenter.c
+    src/vulkansift/vkenv/mini_window_xcb.c # only if using Linux
 )
 set(VULKANSIFT_LIB_HEADERS
     src/vulkansift/vulkansift.h
 )
 
-set(VULKANSIFT_LIB_SHADERS
-    src/vulkansift/viz/shaders/shader.vert
-    src/vulkansift/viz/shaders/shader.frag
-
-    src/vulkansift/sift/shaders/GaussianBlur.comp
-    src/vulkansift/sift/shaders/GaussianBlurInterpolated.comp
-    src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
-    src/vulkansift/sift/shaders/ExtractKeypoints.comp
-    src/vulkansift/sift/shaders/ComputeOrientation.comp
-    src/vulkansift/sift/shaders/ComputeDescriptors.comp
-
-    src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
-)
+#set(VULKANSIFT_LIB_SHADERS
+    # SIFT detector algorithm shaders
+    #src/vulkansift/sift/shaders/GaussianBlur.comp
+    #src/vulkansift/sift/shaders/GaussianBlurInterpolated.comp
+    #src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
+    #src/vulkansift/sift/shaders/ExtractKeypoints.comp
+    #src/vulkansift/sift/shaders/ComputeOrientation.comp
+    #src/vulkansift/sift/shaders/ComputeDescriptors.comp
+    # SIFT matching algirhtm shaders
+    #src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
+#)
 
 #####################################################################################
 #####################################################################################
@@ -65,10 +65,10 @@ set(VULKANSIFT_LINKER_OPTIONS "")
 # Use -DSANITIZE:BOOL=Address or -DSANITIZE:BOOL=Thread to activate with -DCMAKE_BUILD_TYPE:String=Debug
 if(VULKANSIFT_SANITIZE STREQUAL Address)
     string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=address")
-    string(APPEND VULKANSIFT_LINKER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=address;")
+    string(APPEND VULKANSIFT_LINKER_OPTIONS "-fsanitize=address")
 elseif(VULKANSIFT_SANITIZE STREQUAL Thread)
     string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=thread;")
-    string(APPEND VULKANSIFT_LINKER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=thread;")
+    string(APPEND VULKANSIFT_LINKER_OPTIONS "-fsanitize=thread")
 endif()
 #####################################################################################
 #####################################################################################
@@ -84,8 +84,9 @@ set_target_properties(vulkansift PROPERTIES
 set_target_properties(vulkansift PROPERTIES PUBLIC_HEADER "${VULKANSIFT_LIB_HEADERS}")
 
 target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>)
+target_compile_definitions(vulkansift PRIVATE VKSIFT_GPU_DEBUG=1 VK_USE_PLATFORM_XCB_KHR=1)# VK_NO_PROTOTYPES=1)
 target_link_libraries(vulkansift
-    dl
+    dl xcb vulkan
 )
 
 # Compile shaders if modified and store them in build/shaders/
@@ -108,10 +109,16 @@ foreach(shader_path ${VULKANSIFT_LIB_SHADERS})
     set(VULKANSIFT_LIB_SHADERS_SPV ${VULKANSIFT_LIB_SHADERS_SPV} ${output_file} )
 endforeach()
 add_custom_target(vulkansift_shaders ALL DEPENDS ${VULKANSIFT_LIB_SHADERS_SPV})
-message(${VULKANSIFT_LIB_SHADERS_SPV})
 add_dependencies(vulkansift vulkansift_shaders)
 
 #####################################################################################
+
+add_executable(test src/examples/test.cpp)
+target_compile_options(test PRIVATE "-O3")
+target_link_libraries(test vulkansift ${OpenCV_LIBS})
+target_compile_definitions(test PRIVATE VKSIFT_GPU_DEBUG=1)
+target_compile_options(test PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET test APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 if(VULKANSIFT_BUILD_EXAMPLES)
 message("Examples will be built")
