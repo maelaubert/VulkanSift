@@ -29,6 +29,15 @@ int main()
   {
   }
 
+  std::cout << "Input 640 480" << std::endl;
+  vksift_detectFeatures(vksift_instance, NULL, 640, 480, 0);
+
+  std::cout << "Input 1920 1080" << std::endl;
+  vksift_detectFeatures(vksift_instance, NULL, 1920, 1080, 0);
+
+  std::cout << "Input 1918 1079" << std::endl;
+  vksift_detectFeatures(vksift_instance, NULL, 1918, 1079, 0);
+
   vksift_destroyInstance(&vksift_instance);
   vksift_unloadVulkan();
 

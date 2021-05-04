@@ -1,5 +1,6 @@
 #include "vulkansift/vulkansift.h"
 
+// vkenv
 #include "vulkansift/vkenv/logger.h"
 #include "vulkansift/vkenv/vulkan_device.h"
 #include "vulkansift/vkenv/vulkan_utils.h"
@@ -7,6 +8,9 @@
 #include "vulkansift/vkenv/debug_presenter.h"
 #include "vulkansift/vkenv/mini_window.h"
 #endif
+
+// vksift
+#include "vulkansift/sift_memory.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -86,6 +90,7 @@ void vksift_setLogLevel(vksift_LogLevel level)
 typedef struct vksift_Instance_T
 {
   vkenv_Device vulkan_device;
+  vksift_SiftMemory sift_memory;
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   vkenv_DebugPresenter debug_presenter;
@@ -125,8 +130,6 @@ bool isConfigurationValid(const vksift_Config *config)
   case VKSIFT_PYRAMID_PRECISION_FLOAT16:
     break;
   case VKSIFT_PYRAMID_PRECISION_FLOAT32:
-    break;
-  case VKSIFT_PYRAMID_PRECISION_FLOAT64:
     break;
   default:
     logError(LOG_TAG, "Invalid configuration: invalid scale-space pyramid format precision specified)");
@@ -178,6 +181,12 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
   }
 #endif
 
+  if (!vksift_createSiftMemory(instance->vulkan_device, &instance->sift_memory, config))
+  {
+    logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the required memory objects");
+    vksift_destroyInstance(instance_ptr);
+    return false;
+  }
   // TODO
   // Setup vksift_Memory
   // Setup Detector (gaussian kernels, descriptors, pipelines, cmdbufs, etc)
@@ -190,6 +199,9 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   assert(instance_ptr != NULL);
   assert(*instance_ptr != NULL); // vksift_destroyInstance shouldn't be called on NULL Instance
   vksift_Instance instance = *instance_ptr;
+
+  // Destroy SiftMemory
+  VK_NULL_SAFE_DELETE(instance->sift_memory, vksift_destroySiftMemory(instance->vulkan_device, &instance->sift_memory));
 
   // Destroy DebugPresenter
   VK_NULL_SAFE_DELETE(instance->debug_presenter, vkenv_destroyDebugPresenter(instance->vulkan_device, &instance->debug_presenter));
@@ -209,6 +221,7 @@ bool vksift_presentDebugFrame(vksift_Instance instance) { return vkenv_presentDe
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id)
 {
+  vksift_prepareForInputResolution(instance->vulkan_device, instance->sift_memory, 0, image_width, image_height);
   // TODO
 }
 

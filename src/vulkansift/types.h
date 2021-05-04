@@ -22,6 +22,15 @@ typedef struct
   uint8_t feature_vector[VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_ORI];
 } vksift_Feature;
 
+typedef struct
+{
+  uint32_t idx_a;
+  uint32_t idx_b1;
+  uint32_t idx_b2;
+  float dist_a_b1;
+  float dist_a_b2;
+} vksift_Match_2NN;
+
 typedef enum
 {
   VKSIFT_NO_LOG,
@@ -33,7 +42,6 @@ typedef enum
 {
   VKSIFT_PYRAMID_PRECISION_FLOAT16,
   VKSIFT_PYRAMID_PRECISION_FLOAT32,
-  VKSIFT_PYRAMID_PRECISION_FLOAT64
 } vksift_PyramidPrecisionMode;
 
 typedef struct

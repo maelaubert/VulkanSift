@@ -28,7 +28,17 @@ void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, ui
 void vksift_downloadMatches(vksift_Instance instance, vksift_Feature *matches);
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+// Draw an empty frame in the debug window. Necessary to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight
+// (They use frame delimiters to detect when to start/stop debugging and can't detect compute-only applications)
 bool vksift_presentDebugFrame(vksift_Instance instance);
 #endif
+
+///////////////////////////////////////////////////////////////////////
+// Scale-space access functions (for debug and visualization)
+uint8_t vksift_getScaleSpaceNbOctaves();
+void vksift_getScaleSpaceOctaveResolution(const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
+void vksift_downloadScaleSpaceImage(const uint8_t octave, const uint8_t scale, const double *blurred_image);
+void vksift_downloadDoGImage(const uint8_t octave, const uint8_t scale, const double *blurred_image);
+///////////////////////////////////////////////////////////////////////
 
 #endif // VULKAN_SIFT_H

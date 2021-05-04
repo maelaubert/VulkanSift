@@ -28,6 +28,7 @@ endif()
 # VulkanSift library sources
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.c
+    src/vulkansift/sift_memory.c
     # relevant vkenv files
     src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
