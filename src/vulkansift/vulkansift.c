@@ -10,6 +10,7 @@
 #endif
 
 // vksift
+#include "vulkansift/sift_detector.h"
 #include "vulkansift/sift_memory.h"
 
 #include <assert.h>
@@ -91,6 +92,7 @@ typedef struct vksift_Instance_T
 {
   vkenv_Device vulkan_device;
   vksift_SiftMemory sift_memory;
+  vksift_SiftDetector sift_detector;
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   vkenv_DebugPresenter debug_presenter;
@@ -187,9 +189,14 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
     vksift_destroyInstance(instance_ptr);
     return false;
   }
-  // TODO
-  // Setup vksift_Memory
-  // Setup Detector (gaussian kernels, descriptors, pipelines, cmdbufs, etc)
+
+  if (!vksift_createSiftDetector(instance->vulkan_device, instance->sift_memory, &instance->sift_detector, config))
+  {
+    logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the SIFT detector");
+    vksift_destroyInstance(instance_ptr);
+    return false;
+  }
+
   // Setup Matcher (descriptors, pipelines, cmdbufs)
   return true;
 }
@@ -200,8 +207,15 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   assert(*instance_ptr != NULL); // vksift_destroyInstance shouldn't be called on NULL Instance
   vksift_Instance instance = *instance_ptr;
 
+  // If a detection/matching process is running, wait for it to end
+  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  // Destroy SiftDetector
+  VK_NULL_SAFE_DELETE(instance->sift_detector, vksift_destroySiftDetector(&instance->sift_detector));
+
   // Destroy SiftMemory
-  VK_NULL_SAFE_DELETE(instance->sift_memory, vksift_destroySiftMemory(instance->vulkan_device, &instance->sift_memory));
+  VK_NULL_SAFE_DELETE(instance->sift_memory, vksift_destroySiftMemory(&instance->sift_memory));
 
   // Destroy DebugPresenter
   VK_NULL_SAFE_DELETE(instance->debug_presenter, vkenv_destroyDebugPresenter(instance->vulkan_device, &instance->debug_presenter));
@@ -221,8 +235,20 @@ bool vksift_presentDebugFrame(vksift_Instance instance) { return vkenv_presentDe
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id)
 {
-  vksift_prepareForInputResolution(instance->vulkan_device, instance->sift_memory, 0, image_width, image_height);
-  // TODO
+  // If a detection/matching process is running, wait for it to end
+  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  // Prepare memory for input resolution and update target buffer structure
+  bool memory_layout_updated = false;
+  if (!vksift_prepareSiftMemoryForInput(instance->sift_memory, image_data, image_width, image_height, gpu_buffer_id, &memory_layout_updated))
+  {
+    logError(LOG_TAG, "Failed to prepare the SiftMemory instance for the input image and target buffer");
+    abort();
+  }
+
+  // Run the sift detector algorithm
+  vksift_dispatchSiftDetector(instance->sift_detector, gpu_buffer_id, memory_layout_updated);
 }
 
 void vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)

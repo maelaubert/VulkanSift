@@ -10,11 +10,19 @@ typedef struct
   bool is_packed;
   uint32_t curr_input_width;
   uint32_t curr_input_height;
-  uint32_t *octave_section_size;
+  uint32_t *octave_section_max_nb_feat_arr;
 } vksift_SiftBufferInfo;
+
+typedef struct
+{
+  uint32_t width;
+  uint32_t height;
+} vksift_OctaveResolution;
 
 typedef struct vksift_SiftMemory_T
 {
+  vkenv_Device device; // parent device
+
   VkCommandPool general_command_pool;
 
   // SIFT buffers
@@ -30,6 +38,7 @@ typedef struct vksift_SiftMemory_T
   VkDeviceMemory *sift_buffer_memory_arr;
   VkBuffer sift_count_staging_buffer;
   VkDeviceMemory sift_count_staging_buffer_memory;
+  void *sift_count_staging_buffer_ptr;
   VkBuffer sift_staging_buffer;
   VkDeviceMemory sift_staging_buffer_memory;
   void *sift_staging_buffer_ptr;
@@ -65,8 +74,8 @@ typedef struct vksift_SiftMemory_T
   // Pyramid info
   uint32_t curr_input_image_width;
   uint32_t curr_input_image_height;
-  uint8_t curr_nb_octaves;
-  uint32_t *octave_resolutions;
+  uint32_t curr_nb_octaves;
+  vksift_OctaveResolution *octave_resolutions;
 
   // Matching buffers
   VkBuffer match_output_buffer;
@@ -77,13 +86,17 @@ typedef struct vksift_SiftMemory_T
   void *match_output_staging_buffer_ptr;
 
   // Other
-  VkBuffer indirect_dispatch_buffer;
-  VkDeviceMemory indirect_dispatch_buffer_memory;
+  VkBuffer indirect_orientation_dispatch_buffer;
+  VkDeviceMemory indirect_orientation_dispatch_buffer_memory;
+  VkBuffer indirect_descriptor_dispatch_buffer;
+  VkDeviceMemory indirect_descriptor_dispatch_buffer_memory;
+  VkBuffer indirect_matcher_dispatch_buffer;
+  VkDeviceMemory indirect_matcher_dispatch_buffer_memory;
 
   // Config
   uint32_t max_image_size;
-  uint8_t max_nb_octaves;
-  uint8_t nb_scales_per_octave;
+  uint32_t max_nb_octaves;
+  uint32_t nb_scales_per_octave;
   uint32_t nb_sift_buffer;
   uint32_t max_nb_sift_per_buffer;
   vksift_PyramidPrecisionMode pyr_precision_mode;
@@ -99,9 +112,9 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
 // Since the images will be new GPU objects, the related descriptors must be updated
 // If nb octave updated must update SIFT buffers info (sections offset and sizes)
 // Need to setup image layout
-bool vksift_prepareForInputResolution(vkenv_Device device, vksift_SiftMemory memory, const uint32_t target_buffer_idx, const uint32_t input_width,
-                                      const uint32_t input_height);
+bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
+                                      const uint32_t target_buffer_idx, bool *memory_layout_updated);
 // Destory every memory object and free stuffs
-void vksift_destroySiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr);
+void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr);
 
 #endif // VKSIFT_SIFTMEMORY

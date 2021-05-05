@@ -1,0 +1,18 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(r32f, binding = 0) uniform image2DArray img_input;
+layout(r32f, binding = 1) uniform image2DArray img_output;
+
+void main() {
+    ivec3 coords = ivec3(gl_GlobalInvocationID);
+
+    int image_width = imageSize(img_input).x;
+    int image_height = imageSize(img_input).y;
+
+    if(coords.x < image_width && coords.y < image_height) {
+        float sp1_val = imageLoad(img_input, coords+ivec3(0,0,1)).r;
+        float s_val = imageLoad(img_input, coords).r;
+        imageStore(img_output, coords, vec4(sp1_val-s_val, 0.f, 0.f, 1.f));
+    }
+}

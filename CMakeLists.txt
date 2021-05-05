@@ -29,6 +29,7 @@ endif()
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.c
     src/vulkansift/sift_memory.c
+    src/vulkansift/sift_detector.c
     # relevant vkenv files
     src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
@@ -43,17 +44,17 @@ set(VULKANSIFT_LIB_HEADERS
     src/vulkansift/vulkansift.h
 )
 
-#set(VULKANSIFT_LIB_SHADERS
+set(VULKANSIFT_LIB_SHADERS
     # SIFT detector algorithm shaders
-    #src/vulkansift/sift/shaders/GaussianBlur.comp
-    #src/vulkansift/sift/shaders/GaussianBlurInterpolated.comp
-    #src/vulkansift/sift/shaders/DifferenceOfGaussian.comp
+    src/vulkansift/shaders/GaussianBlur.comp
+    src/vulkansift/shaders/GaussianBlurInterpolated.comp
+    src/vulkansift/shaders/DifferenceOfGaussian.comp
     #src/vulkansift/sift/shaders/ExtractKeypoints.comp
     #src/vulkansift/sift/shaders/ComputeOrientation.comp
     #src/vulkansift/sift/shaders/ComputeDescriptors.comp
     # SIFT matching algirhtm shaders
     #src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
-#)
+)
 
 #####################################################################################
 #####################################################################################
@@ -115,6 +116,8 @@ add_dependencies(vulkansift vulkansift_shaders)
 #####################################################################################
 
 add_executable(test src/examples/test.cpp)
+find_package(OpenCV REQUIRED)
+
 target_compile_options(test PRIVATE "-O3")
 target_link_libraries(test vulkansift ${OpenCV_LIBS})
 target_compile_definitions(test PRIVATE VKSIFT_GPU_DEBUG=1)
