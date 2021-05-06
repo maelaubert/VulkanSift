@@ -73,7 +73,7 @@ typedef struct
   float seed_scale_sigma;
   // Minimum Difference of Gaussian image intensity threshold used to detect a SIFT keypoints (expressed in normalized intensity value [0.f..1.f])
   // In the implementation, this value is divided by nb_scales_per_octave before being used. (default: 0.04f)
-  float constrast_threshold;
+  float intensity_threshold;
   // Edge threshold used to discard SIFT keypoints on Difference of Gaussian image edges (default: 10.f)
   float edge_threshold;
   // Max number of orientation per SIFT keypoint (one descriptor is detector for each orientation

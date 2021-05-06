@@ -42,18 +42,37 @@ typedef struct vksift_SiftDetector_T
   VkDescriptorSet *blur_v_desc_sets;
   VkPipelineLayout blur_pipeline_layout;
   VkPipeline blur_pipeline;
-
   // Difference of Gaussian set
   VkDescriptorSetLayout dog_desc_set_layout;
   VkDescriptorPool dog_desc_pool;
   VkDescriptorSet *dog_desc_sets;
   VkPipelineLayout dog_pipeline_layout;
   VkPipeline dog_pipeline;
+  // ExtrackKeypoints set
+  VkDescriptorSetLayout extractkpts_desc_set_layout;
+  VkDescriptorPool extractkpts_desc_pool;
+  VkDescriptorSet *extractkpts_desc_sets;
+  VkPipelineLayout extractkpts_pipeline_layout;
+  VkPipeline extractkpts_pipeline;
+  // ComputeOrientation set
+  VkDescriptorSetLayout orientation_desc_set_layout;
+  VkDescriptorPool orientation_desc_pool;
+  VkDescriptorSet *orientation_desc_sets;
+  VkPipelineLayout orientation_pipeline_layout;
+  VkPipeline orientation_pipeline;
+  // ComputeDescriptor set
+  VkDescriptorSetLayout descriptor_desc_set_layout;
+  VkDescriptorPool descriptor_desc_pool;
+  VkDescriptorSet *descriptor_desc_sets;
+  VkPipelineLayout descriptor_pipeline_layout;
+  VkPipeline descriptor_pipeline;
 
   // Config
   bool use_hardware_interp_kernel;
   float input_blur_level;
   float seed_scale_sigma;
+  float intensity_threshold;
+  float edge_threshold;
 
 } * vksift_SiftDetector;
 

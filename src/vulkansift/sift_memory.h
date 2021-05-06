@@ -10,7 +10,12 @@ typedef struct
   bool is_packed;
   uint32_t curr_input_width;
   uint32_t curr_input_height;
+  // Number of SIFT feature per sections
   uint32_t *octave_section_max_nb_feat_arr;
+  // Offset to get the start of the sections
+  VkDeviceSize *octave_section_offset_arr;
+  // Section sizes
+  VkDeviceSize *octave_section_size_arr;
 } vksift_SiftBufferInfo;
 
 typedef struct
@@ -86,6 +91,7 @@ typedef struct vksift_SiftMemory_T
   void *match_output_staging_buffer_ptr;
 
   // Other
+  VkDeviceSize *indirect_oridesc_offset_arr;
   VkBuffer indirect_orientation_dispatch_buffer;
   VkDeviceMemory indirect_orientation_dispatch_buffer_memory;
   VkBuffer indirect_descriptor_dispatch_buffer;

@@ -18,6 +18,14 @@ typedef struct
   float kernel[VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE];
 } GaussianBlurPushConsts;
 
+typedef struct
+{
+  float scale_factor;
+  float sigma_multiplier;
+  float dog_threshold;
+  float edge_threshold;
+} ExtractKeypointsPushConsts;
+
 void getGPUDebugMarkerFuncs(vksift_SiftDetector detector)
 {
   detector->vkCmdDebugMarkerBeginEXT = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(detector->dev->device, "VkDebugMarkerMarkerInfoEXT");
@@ -340,6 +348,185 @@ bool prepareDescriptorSets(vksift_SiftDetector detector)
     return false;
   }
 
+  ///////////////////////////////////////////////////
+  // Descriptors for ExtractKeypoints pipeline
+  ///////////////////////////////////////////////////
+  VkDescriptorSetLayoutBinding extkpts_dog_image_layout_binding = {.binding = 0,
+                                                                   .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                                   .descriptorCount = 1,
+                                                                   .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                   .pImmutableSamplers = NULL};
+  VkDescriptorSetLayoutBinding extkpts_sift_buffer_layout_binding = {.binding = 1,
+                                                                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                     .descriptorCount = 1,
+                                                                     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                     .pImmutableSamplers = NULL};
+  VkDescriptorSetLayoutBinding extkpts_indispatch_buffer_layout_binding = {.binding = 2,
+                                                                           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                           .descriptorCount = 1,
+                                                                           .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                           .pImmutableSamplers = NULL};
+
+  VkDescriptorSetLayoutBinding extkpts_bindings[3] = {extkpts_dog_image_layout_binding, extkpts_sift_buffer_layout_binding,
+                                                      extkpts_indispatch_buffer_layout_binding};
+
+  VkDescriptorSetLayoutCreateInfo extkpts_layout_info = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 3, .pBindings = extkpts_bindings};
+
+  if (vkCreateDescriptorSetLayout(detector->dev->device, &extkpts_layout_info, NULL, &detector->extractkpts_desc_set_layout) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ExtractKeypoints descriptor set layout");
+    return false;
+  }
+
+  // Create descriptor pool to allocate descriptor sets (generic)
+  VkDescriptorPoolSize extkpts_pool_sizes[3];
+  extkpts_pool_sizes[0] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = detector->mem->max_nb_octaves};
+  extkpts_pool_sizes[1] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = detector->mem->max_nb_octaves};
+  extkpts_pool_sizes[2] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = detector->mem->max_nb_octaves};
+  VkDescriptorPoolCreateInfo extkpts_descriptor_pool_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                             .maxSets = detector->mem->max_nb_octaves,
+                                                             .poolSizeCount = 3,
+                                                             .pPoolSizes = extkpts_pool_sizes};
+  if (vkCreateDescriptorPool(detector->dev->device, &extkpts_descriptor_pool_info, NULL, &detector->extractkpts_desc_pool) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ExtractKeypoints descriptor pool");
+    return false;
+  }
+
+  // Create descriptor sets that can be bound in command buffer
+  VkDescriptorSetLayout *extkpts_layouts = allocMultLayoutCopy(detector->extractkpts_desc_set_layout, detector->mem->max_nb_octaves);
+  detector->extractkpts_desc_sets = (VkDescriptorSet *)malloc(sizeof(VkDescriptorSet) * detector->mem->max_nb_octaves);
+  VkDescriptorSetAllocateInfo extkpts_alloc_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                    .descriptorPool = detector->extractkpts_desc_pool,
+                                                    .descriptorSetCount = detector->mem->max_nb_octaves,
+                                                    .pSetLayouts = extkpts_layouts};
+
+  alloc_res = vkAllocateDescriptorSets(detector->dev->device, &extkpts_alloc_info, detector->extractkpts_desc_sets);
+  free(extkpts_layouts);
+  if (alloc_res != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to allocate ExtractKeypoints descriptor set");
+    return false;
+  }
+
+  ///////////////////////////////////////////////////
+  // Descriptors for ComputeOrientation pipeline
+  ///////////////////////////////////////////////////
+  VkDescriptorSetLayoutBinding orientation_octave_image_layout_binding = {.binding = 0,
+                                                                          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                                          .descriptorCount = 1,
+                                                                          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                          .pImmutableSamplers = NULL};
+  VkDescriptorSetLayoutBinding orientation_sift_buffer_layout_binding = {.binding = 1,
+                                                                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                         .descriptorCount = 1,
+                                                                         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                         .pImmutableSamplers = NULL};
+  VkDescriptorSetLayoutBinding orientation_indispatch_buffer_layout_binding = {.binding = 2,
+                                                                               .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                               .descriptorCount = 1,
+                                                                               .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                               .pImmutableSamplers = NULL};
+
+  VkDescriptorSetLayoutBinding orientation_bindings[3] = {orientation_octave_image_layout_binding, orientation_sift_buffer_layout_binding,
+                                                          orientation_indispatch_buffer_layout_binding};
+  VkDescriptorSetLayoutCreateInfo orientation_layout_info = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 3, .pBindings = orientation_bindings};
+
+  if (vkCreateDescriptorSetLayout(detector->dev->device, &orientation_layout_info, NULL, &detector->orientation_desc_set_layout) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ComputeOrientation descriptor set layout");
+    return false;
+  }
+
+  // Create descriptor pool to allocate descriptor sets (generic)
+  VkDescriptorPoolSize orientation_pool_sizes[3];
+  orientation_pool_sizes[0] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = detector->mem->max_nb_octaves};
+  orientation_pool_sizes[1] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = detector->mem->max_nb_octaves};
+  orientation_pool_sizes[2] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = detector->mem->max_nb_octaves};
+  VkDescriptorPoolCreateInfo orientation_descriptor_pool_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                                 .maxSets = detector->mem->max_nb_octaves,
+                                                                 .poolSizeCount = 3,
+                                                                 .pPoolSizes = orientation_pool_sizes};
+  if (vkCreateDescriptorPool(detector->dev->device, &orientation_descriptor_pool_info, NULL, &detector->orientation_desc_pool) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ComputeOrientation descriptor pool");
+    return false;
+  }
+
+  // Create descriptor sets that can be bound in command buffer
+  VkDescriptorSetLayout *orientation_layouts = allocMultLayoutCopy(detector->orientation_desc_set_layout, detector->mem->max_nb_octaves);
+  detector->orientation_desc_sets = (VkDescriptorSet *)malloc(sizeof(VkDescriptorSet) * detector->mem->max_nb_octaves);
+  VkDescriptorSetAllocateInfo orientation_alloc_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                        .descriptorPool = detector->orientation_desc_pool,
+                                                        .descriptorSetCount = detector->mem->max_nb_octaves,
+                                                        .pSetLayouts = orientation_layouts};
+
+  alloc_res = vkAllocateDescriptorSets(detector->dev->device, &orientation_alloc_info, detector->orientation_desc_sets);
+  free(orientation_layouts);
+  if (alloc_res != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to allocate ComputeOrientation descriptor set");
+    return false;
+  }
+
+  ///////////////////////////////////////////////////
+  // Descriptors for ComputeDescriptors pipeline
+  ///////////////////////////////////////////////////
+
+  VkDescriptorSetLayoutBinding descriptor_octave_image_layout_binding = {.binding = 0,
+                                                                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                                         .descriptorCount = 1,
+                                                                         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                         .pImmutableSamplers = NULL};
+  VkDescriptorSetLayoutBinding descriptor_sift_buffer_layout_binding = {.binding = 1,
+                                                                        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                        .descriptorCount = 1,
+                                                                        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                        .pImmutableSamplers = NULL};
+
+  VkDescriptorSetLayoutBinding descriptor_bindings[2] = {descriptor_octave_image_layout_binding, descriptor_sift_buffer_layout_binding};
+
+  VkDescriptorSetLayoutCreateInfo descriptor_layout_info = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 2, .pBindings = descriptor_bindings};
+
+  if (vkCreateDescriptorSetLayout(detector->dev->device, &descriptor_layout_info, NULL, &detector->descriptor_desc_set_layout) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ComputeDescriptors descriptor set layout");
+    return false;
+  }
+
+  // Create descriptor pool to allocate descriptor sets (generic)
+  VkDescriptorPoolSize descriptor_pool_sizes[2];
+  descriptor_pool_sizes[0] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = detector->mem->max_nb_octaves};
+  descriptor_pool_sizes[1] = (VkDescriptorPoolSize){.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = detector->mem->max_nb_octaves};
+  VkDescriptorPoolCreateInfo descriptor_descriptor_pool_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                                .maxSets = detector->mem->max_nb_octaves,
+                                                                .poolSizeCount = 2,
+                                                                .pPoolSizes = descriptor_pool_sizes};
+  if (vkCreateDescriptorPool(detector->dev->device, &descriptor_descriptor_pool_info, NULL, &detector->descriptor_desc_pool) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create ComputeDescriptors descriptor pool");
+    return false;
+  }
+
+  // Create descriptor sets that can be bound in command buffer
+  VkDescriptorSetLayout *descriptor_layouts = allocMultLayoutCopy(detector->descriptor_desc_set_layout, detector->mem->max_nb_octaves);
+  detector->descriptor_desc_sets = (VkDescriptorSet *)malloc(sizeof(VkDescriptorSet) * detector->mem->max_nb_octaves);
+  VkDescriptorSetAllocateInfo descriptor_alloc_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                       .descriptorPool = detector->descriptor_desc_pool,
+                                                       .descriptorSetCount = detector->mem->max_nb_octaves,
+                                                       .pSetLayouts = descriptor_layouts};
+
+  alloc_res = vkAllocateDescriptorSets(detector->dev->device, &descriptor_alloc_info, detector->descriptor_desc_sets);
+  free(descriptor_layouts);
+  if (alloc_res != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to allocate ComputeDescriptors descriptor set");
+    return false;
+  }
+
   return true;
 }
 
@@ -388,6 +575,61 @@ bool setupComputePipelines(vksift_SiftDetector detector)
     return false;
   }
   vkDestroyShaderModule(detector->dev->device, dog_shader_module, NULL);
+
+  //////////////////////////////////////
+  // Setup ExtractKeypoints pipeline
+  //////////////////////////////////////
+  VkShaderModule extractkpts_shader_module;
+  if (!vkenv_createShaderModule(detector->dev->device, "shaders/ExtractKeypoints.comp.spv", &extractkpts_shader_module))
+  {
+    logError(LOG_TAG, "Failed to create ExtractKeypoints shader module");
+    return false;
+  }
+  if (!vkenv_createComputePipeline(detector->dev->device, extractkpts_shader_module, detector->extractkpts_desc_set_layout,
+                                   sizeof(ExtractKeypointsPushConsts), &detector->extractkpts_pipeline_layout, &detector->extractkpts_pipeline))
+  {
+    logError(LOG_TAG, "Failed to create ExtractKeypoints pipeline");
+    vkDestroyShaderModule(detector->dev->device, extractkpts_shader_module, NULL);
+    return false;
+  }
+  vkDestroyShaderModule(detector->dev->device, extractkpts_shader_module, NULL);
+  //////////////////////////////////////
+  // Setup ComputeOrientation pipeline
+  //////////////////////////////////////
+
+  VkShaderModule orientation_shader_module;
+  if (!vkenv_createShaderModule(detector->dev->device, "shaders/ComputeOrientation.comp.spv", &orientation_shader_module))
+  {
+    logError(LOG_TAG, "Failed to create ComputeOrientation shader module");
+    return false;
+  }
+  if (!vkenv_createComputePipeline(detector->dev->device, orientation_shader_module, detector->orientation_desc_set_layout, 0,
+                                   &detector->orientation_pipeline_layout, &detector->orientation_pipeline))
+  {
+    logError(LOG_TAG, "Failed to create ComputeOrientation pipeline");
+    vkDestroyShaderModule(detector->dev->device, orientation_shader_module, NULL);
+    return false;
+  }
+  vkDestroyShaderModule(detector->dev->device, orientation_shader_module, NULL);
+
+  //////////////////////////////////////
+  // Setup ComputeDescriptors pipeline
+  //////////////////////////////////////
+
+  VkShaderModule descriptor_shader_module;
+  if (!vkenv_createShaderModule(detector->dev->device, "shaders/ComputeDescriptors.comp.spv", &descriptor_shader_module))
+  {
+    logError(LOG_TAG, "Failed to create ComputeDescriptors shader module");
+    return false;
+  }
+  if (!vkenv_createComputePipeline(detector->dev->device, descriptor_shader_module, detector->descriptor_desc_set_layout, 0,
+                                   &detector->descriptor_pipeline_layout, &detector->descriptor_pipeline))
+  {
+    logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline");
+    vkDestroyShaderModule(detector->dev->device, descriptor_shader_module, NULL);
+    return false;
+  }
+  vkDestroyShaderModule(detector->dev->device, descriptor_shader_module, NULL);
 
   return true;
 }
@@ -482,6 +724,124 @@ bool writeDescriptorSets(vksift_SiftDetector detector)
     vkUpdateDescriptorSets(detector->dev->device, 2, dog_descriptor_writes, 0, NULL);
   }
 
+  /////////////////////////////////////////////////////
+  // Write sets for ExtractKeypoints pipeline
+  for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
+  {
+    VkDescriptorImageInfo dog_input_image_info = {
+        .sampler = VK_NULL_HANDLE, .imageView = detector->mem->octave_DoG_image_view_arr[i], .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+    VkDescriptorBufferInfo sift_buffer_info = {.buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx],
+                                               .offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[i],
+                                               .range = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[i]};
+    VkDescriptorBufferInfo indispatch_buffer_info = {.buffer = detector->mem->indirect_orientation_dispatch_buffer,
+                                                     .offset = detector->mem->indirect_oridesc_offset_arr[i],
+                                                     .range = sizeof(uint32_t) * 3};
+    VkWriteDescriptorSet descriptor_writes[3];
+    descriptor_writes[0] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->extractkpts_desc_sets[i],
+                                                  .dstBinding = 0,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                  .pImageInfo = &dog_input_image_info,
+                                                  .pBufferInfo = NULL,
+                                                  .pTexelBufferView = NULL};
+    descriptor_writes[1] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->extractkpts_desc_sets[i],
+                                                  .dstBinding = 1,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  .pImageInfo = NULL,
+                                                  .pBufferInfo = &sift_buffer_info,
+                                                  .pTexelBufferView = NULL};
+    descriptor_writes[2] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->extractkpts_desc_sets[i],
+                                                  .dstBinding = 2,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  .pImageInfo = NULL,
+                                                  .pBufferInfo = &indispatch_buffer_info,
+                                                  .pTexelBufferView = NULL};
+    vkUpdateDescriptorSets(detector->dev->device, 3, descriptor_writes, 0, NULL);
+  }
+
+  /////////////////////////////////////////////////////
+  // Write sets for ComputeOrientation pipeline
+  for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
+  {
+    VkDescriptorImageInfo octave_input_image_info = {
+        .sampler = VK_NULL_HANDLE, .imageView = detector->mem->octave_image_view_arr[i], .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+    VkDescriptorBufferInfo sift_buffer_info = {.buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx],
+                                               .offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[i],
+                                               .range = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[i]};
+    VkDescriptorBufferInfo indispatch_buffer_info = {.buffer = detector->mem->indirect_descriptor_dispatch_buffer,
+                                                     .offset = detector->mem->indirect_oridesc_offset_arr[i],
+                                                     .range = sizeof(uint32_t) * 3};
+
+    VkWriteDescriptorSet descriptor_writes[3];
+    descriptor_writes[0] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->orientation_desc_sets[i],
+                                                  .dstBinding = 0,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                  .pImageInfo = &octave_input_image_info,
+                                                  .pBufferInfo = NULL,
+                                                  .pTexelBufferView = NULL};
+    descriptor_writes[1] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->orientation_desc_sets[i],
+                                                  .dstBinding = 1,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  .pImageInfo = NULL,
+                                                  .pBufferInfo = &sift_buffer_info,
+                                                  .pTexelBufferView = NULL};
+    descriptor_writes[2] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->orientation_desc_sets[i],
+                                                  .dstBinding = 2,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  .pImageInfo = NULL,
+                                                  .pBufferInfo = &indispatch_buffer_info,
+                                                  .pTexelBufferView = NULL};
+    vkUpdateDescriptorSets(detector->dev->device, 3, descriptor_writes, 0, NULL);
+  }
+
+  /////////////////////////////////////////////////////
+  // Write sets for ComputeDescriptor pipeline
+  for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
+  {
+    VkDescriptorImageInfo octave_input_image_info = {
+        .sampler = VK_NULL_HANDLE, .imageView = detector->mem->octave_image_view_arr[i], .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+    VkDescriptorBufferInfo sift_buffer_info = {.buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx],
+                                               .offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[i],
+                                               .range = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[i]};
+    VkWriteDescriptorSet descriptor_writes[2];
+    descriptor_writes[0] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->descriptor_desc_sets[i],
+                                                  .dstBinding = 0,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                  .pImageInfo = &octave_input_image_info,
+                                                  .pBufferInfo = NULL,
+                                                  .pTexelBufferView = NULL};
+    descriptor_writes[1] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                                  .dstSet = detector->descriptor_desc_sets[i],
+                                                  .dstBinding = 1,
+                                                  .dstArrayElement = 0,
+                                                  .descriptorCount = 1,
+                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  .pImageInfo = NULL,
+                                                  .pBufferInfo = &sift_buffer_info,
+                                                  .pTexelBufferView = NULL};
+    vkUpdateDescriptorSets(detector->dev->device, 2, descriptor_writes, 0, NULL);
+  }
+
   return true;
 }
 
@@ -494,19 +854,18 @@ void recClearDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
 
   vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, 0, VK_WHOLE_SIZE, 1);
   vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, 0, VK_WHOLE_SIZE, 1);
-  uint32_t sift_section_offset = 0;
   for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
   {
     // Only reset the indirect dispatch buffers and the SIFT buffer section headers (sift counter and max nb sift)
+    uint32_t sift_section_offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[i];
     uint32_t section_max_nb_feat = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_max_nb_feat_arr[i];
     vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset, sizeof(uint32_t), 0);
     vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset + sizeof(uint32_t), sizeof(uint32_t),
                     section_max_nb_feat);
-    sift_section_offset += sizeof(vksift_Feature) * section_max_nb_feat;
 
     // Set the group size x to 0 for the orientation and descriptor
-    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, sizeof(uint32_t) * 3 * i, sizeof(uint32_t), 0);
-    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, sizeof(uint32_t) * 3 * i, sizeof(uint32_t), 0);
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[i], sizeof(uint32_t), 0);
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[i], sizeof(uint32_t), 0);
   }
   endMarkerRegion(detector, cmdbuf);
 }
@@ -710,6 +1069,189 @@ void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer c
   free(image_barriers);
 }
 
+void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+{
+  /////////////////////////////////////////////////
+  // Extract keypoints
+  /////////////////////////////////////////////////
+  VkBufferMemoryBarrier *buffer_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * oct_count * 2);
+  VkBuffer sift_buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx];
+
+  beginMarkerRegion(detector, cmdbuf, "ExtrackKeypoints");
+
+  // Make sure previous writes are visible
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx * 2 + 0] =
+        vkenv_genBufferMemoryBarrier(sift_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    buffer_barriers[oct_idx * 2 + 1] =
+        vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED,
+                                     VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count * 2, buffer_barriers, 0,
+                       NULL);
+
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->extractkpts_pipeline);
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    ExtractKeypointsPushConsts pushconst;
+    pushconst.sigma_multiplier = detector->seed_scale_sigma;
+    // scale factor applied to the blur level (sigma) (ex: oct1 = 1.6 * scale_factor=1, oct2 = 1.6*scale_factor=2)
+    pushconst.scale_factor = powf(2.f, oct_idx);
+    pushconst.dog_threshold = detector->intensity_threshold;
+    pushconst.edge_threshold = detector->edge_threshold;
+    // logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
+    vkCmdPushConstants(cmdbuf, detector->extractkpts_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);
+    vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->extractkpts_pipeline_layout, 0, 1, &detector->extractkpts_desc_sets[oct_idx],
+                            0, NULL);
+    vkCmdDispatch(cmdbuf, ceilf((float)(detector->mem->octave_resolutions[oct_idx].width) / 8.f),
+                  ceilf((float)(detector->mem->octave_resolutions[oct_idx].height) / 8.f), detector->mem->nb_scales_per_octave);
+  }
+
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(sift_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0,
+                       NULL);
+
+  // Copy one indispatch buffer to the other
+  // Prepare the access masks for the transfer
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx * 2 + 0] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT,
+                                                                    VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                                    detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+    buffer_barriers[oct_idx * 2 + 1] =
+        vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED,
+                                     VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, oct_count * 2, buffer_barriers, 0, NULL);
+
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    VkBufferCopy region = {.srcOffset = detector->mem->indirect_oridesc_offset_arr[oct_idx],
+                           .dstOffset = detector->mem->indirect_oridesc_offset_arr[oct_idx],
+                           .size = sizeof(uint32_t) * 3};
+    vkCmdCopyBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_descriptor_dispatch_buffer, 1, &region);
+  }
+
+  // Prepare for orientation pipeline dispatch buffer for the indirect dispatch call (require specific mask)
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_TRANSFER_READ_BIT,
+                                                            VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+
+  endMarkerRegion(detector, cmdbuf);
+
+  free(buffer_barriers);
+}
+
+void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+{
+  /////////////////////////////////////////////////
+  // Compute orientation
+  /////////////////////////////////////////////////
+  VkBufferMemoryBarrier *buffer_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * oct_count);
+  VkBuffer sift_buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx];
+
+  beginMarkerRegion(detector, cmdbuf, "ComputeOrientation");
+  // Prepare the descriptor pipeline indirect dispatch buffer for writes access and make sure previous writes are visible
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                                            VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->orientation_pipeline);
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->orientation_pipeline_layout, 0, 1, &detector->orientation_desc_sets[oct_idx],
+                            0, NULL);
+    vkCmdDispatchIndirect(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx]);
+  }
+
+  // Make sure writes are visible for future compute shaders
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] =
+        vkenv_genBufferMemoryBarrier(sift_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0,
+                       NULL);
+
+  // Prepare for descriptor pipeline dispatch buffer for the indirect dispatch call (require specific mask)
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT,
+                                                            VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+
+  endMarkerRegion(detector, cmdbuf);
+
+  free(buffer_barriers);
+}
+
+void recComputeDestriptorsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+{
+  /////////////////////////////////////////////////
+  // Compute descriptor
+  /////////////////////////////////////////////////
+  beginMarkerRegion(detector, cmdbuf, "ComputeDescriptors");
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->descriptor_pipeline);
+
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->descriptor_pipeline_layout, 0, 1, &detector->descriptor_desc_sets[oct_idx],
+                            0, NULL);
+    vkCmdDispatchIndirect(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx]);
+  }
+  endMarkerRegion(detector, cmdbuf);
+}
+
+void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+{
+  /////////////////////////////////////////////////
+  // Copy SIFT count to staging
+  /////////////////////////////////////////////////
+  VkBufferMemoryBarrier *buffer_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * oct_count);
+  VkBuffer sift_buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx];
+
+  beginMarkerRegion(detector, cmdbuf, "CopySiftCount");
+
+  // Only copy the number of detected SIFT features to the staging buffer (accessible by host)
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(sift_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED,
+                                                            VK_QUEUE_FAMILY_IGNORED,
+                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+  }
+  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    VkBufferCopy sift_copy_region = {.srcOffset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                     .dstOffset = sizeof(uint32_t) * (detector->curr_buffer_idx * detector->mem->max_nb_octaves + oct_idx),
+                                     .size = sizeof(uint32_t)};
+    vkCmdCopyBuffer(cmdbuf, sift_buffer, detector->mem->sift_count_staging_buffer, 1, &sift_copy_region);
+  }
+  endMarkerRegion(detector, cmdbuf);
+}
+
 bool recordCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
@@ -732,14 +1274,15 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
   }
   // Compute difference of Gaussian (on full range to synchronize every octave with a single barrier)
   recDifferenceOfGaussianCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
-
-  // TODO: same range system for extract, orientation, descriptor and copy count
-
-  /////////////////////////////////////////////////
-  // Scale space construction
-  /////////////////////////////////////////////////
-  beginMarkerRegion(detector, detector->sync_command_buffer, "Scale space construction");
-  endMarkerRegion(detector, detector->sync_command_buffer);
+  // Extract extrema (keypoints) from DoG images
+  recExtractKeypointsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  // For the main orientations of each keypoint (this creates new keypoints if there's more than one orientation)
+  recComputeOrientationsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  // For each oriented keypoint compute its descriptor
+  recComputeDestriptorsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  // Copy the number of found keypoints to the sift_count staging buffer
+  // (so that when the CPU want to download the result it can download only the number of SIFT found with a custom command buffer)
+  recCopySIFTCountCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
 
   if (vkEndCommandBuffer(detector->sync_command_buffer) != VK_SUCCESS)
   {
@@ -768,6 +1311,8 @@ bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vk
   detector->use_hardware_interp_kernel = config->use_hardware_interpolated_blur;
   detector->input_blur_level = config->input_image_blur_level;
   detector->seed_scale_sigma = config->seed_scale_sigma;
+  detector->intensity_threshold = config->intensity_threshold;
+  detector->edge_threshold = config->edge_threshold;
 
   detector->curr_buffer_idx = 0u; // Default target buffer is 0 (always available)
 
@@ -812,6 +1357,7 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
       return false;
     }
   }
+
   return true;
 }
 
@@ -845,12 +1391,33 @@ void vksift_destroySiftDetector(vksift_SiftDetector *detector_ptr)
   VK_NULL_SAFE_DELETE(detector->dog_pipeline_layout, vkDestroyPipelineLayout(detector->dev->device, detector->dog_pipeline_layout, NULL));
   VK_NULL_SAFE_DELETE(detector->dog_desc_pool, vkDestroyDescriptorPool(detector->dev->device, detector->dog_desc_pool, NULL));
   VK_NULL_SAFE_DELETE(detector->dog_desc_set_layout, vkDestroyDescriptorSetLayout(detector->dev->device, detector->dog_desc_set_layout, NULL));
+  // Extract keypoints
+  VK_NULL_SAFE_DELETE(detector->extractkpts_pipeline, vkDestroyPipeline(detector->dev->device, detector->extractkpts_pipeline, NULL));
+  VK_NULL_SAFE_DELETE(detector->extractkpts_pipeline_layout, vkDestroyPipelineLayout(detector->dev->device, detector->extractkpts_pipeline_layout, NULL));
+  VK_NULL_SAFE_DELETE(detector->extractkpts_desc_pool, vkDestroyDescriptorPool(detector->dev->device, detector->extractkpts_desc_pool, NULL));
+  VK_NULL_SAFE_DELETE(detector->extractkpts_desc_set_layout,
+                      vkDestroyDescriptorSetLayout(detector->dev->device, detector->extractkpts_desc_set_layout, NULL));
+  // Compute orientation
+  VK_NULL_SAFE_DELETE(detector->orientation_pipeline, vkDestroyPipeline(detector->dev->device, detector->orientation_pipeline, NULL));
+  VK_NULL_SAFE_DELETE(detector->orientation_pipeline_layout, vkDestroyPipelineLayout(detector->dev->device, detector->orientation_pipeline_layout, NULL));
+  VK_NULL_SAFE_DELETE(detector->orientation_desc_pool, vkDestroyDescriptorPool(detector->dev->device, detector->orientation_desc_pool, NULL));
+  VK_NULL_SAFE_DELETE(detector->orientation_desc_set_layout,
+                      vkDestroyDescriptorSetLayout(detector->dev->device, detector->orientation_desc_set_layout, NULL));
+  // Compute descriptor
+  VK_NULL_SAFE_DELETE(detector->descriptor_pipeline, vkDestroyPipeline(detector->dev->device, detector->descriptor_pipeline, NULL));
+  VK_NULL_SAFE_DELETE(detector->descriptor_pipeline_layout, vkDestroyPipelineLayout(detector->dev->device, detector->descriptor_pipeline_layout, NULL));
+  VK_NULL_SAFE_DELETE(detector->descriptor_desc_pool, vkDestroyDescriptorPool(detector->dev->device, detector->descriptor_desc_pool, NULL));
+  VK_NULL_SAFE_DELETE(detector->descriptor_desc_set_layout,
+                      vkDestroyDescriptorSetLayout(detector->dev->device, detector->descriptor_desc_set_layout, NULL));
 
   // Free descriptor arrays
   VK_NULL_SAFE_DELETE(detector->gaussian_kernels, free(detector->gaussian_kernels));
   VK_NULL_SAFE_DELETE(detector->gaussian_kernel_sizes, free(detector->gaussian_kernel_sizes));
   VK_NULL_SAFE_DELETE(detector->blur_desc_sets, free(detector->blur_desc_sets));
   VK_NULL_SAFE_DELETE(detector->dog_desc_sets, free(detector->dog_desc_sets));
+  VK_NULL_SAFE_DELETE(detector->extractkpts_desc_sets, free(detector->extractkpts_desc_sets));
+  VK_NULL_SAFE_DELETE(detector->orientation_desc_sets, free(detector->orientation_desc_sets));
+  VK_NULL_SAFE_DELETE(detector->descriptor_desc_sets, free(detector->descriptor_desc_sets));
 
   // Release vksift_SiftDetector memory
   free(*detector_ptr);

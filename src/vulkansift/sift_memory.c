@@ -60,13 +60,29 @@ void updateBufferInfo(vksift_SiftMemory memory, uint32_t buffer_idx)
 
   // Any not used octave (among the max number of octave) will have its size set to 0
   memset(memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr, 0, sizeof(uint32_t) * memory->max_nb_octaves);
+  memset(memory->sift_buffers_info[buffer_idx].octave_section_offset_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
+  memset(memory->sift_buffers_info[buffer_idx].octave_section_size_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
+
   float max_nb_sift_in_buff = (float)memory->max_nb_sift_per_buffer;
   // The sum of n successive halves of X = X - nth_half (500+250+125 = 1000-125)
   float halves_sum = max_nb_sift_in_buff - powf(0.5, memory->curr_nb_octaves) * max_nb_sift_in_buff;
   float corrector = max_nb_sift_in_buff / halves_sum;
+
+  VkDeviceSize offset = 0u;
+  VkDeviceSize offset_alignment = memory->device->physical_device_props.limits.minStorageBufferOffsetAlignment;
   for (uint32_t i = 0; i < memory->curr_nb_octaves; i++)
   {
-    memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr[i] = (uint32_t)floorf((powf(0.5, i + 1) * max_nb_sift_in_buff) * corrector);
+    uint32_t nb_kpts = (uint32_t)floorf((powf(0.5, i + 1) * max_nb_sift_in_buff) * corrector);
+    memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr[i] = nb_kpts;
+    memory->sift_buffers_info[buffer_idx].octave_section_offset_arr[i] = offset;
+    memory->sift_buffers_info[buffer_idx].octave_section_size_arr[i] = nb_kpts * sizeof(vksift_Feature) + sizeof(uint32_t) * 2;
+    offset += memory->sift_buffers_info[buffer_idx].octave_section_size_arr[i];
+    // If offset not aligned compensate for alignment (otherwise memory can't be safely aliased)
+    VkDeviceSize alignment_mod = offset % offset_alignment;
+    if (alignment_mod)
+    {
+      offset += offset_alignment - alignment_mod;
+    }
     logInfo(LOG_TAG, "Octave %d max number of features: %d", i, memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr[i]);
   }
 }
@@ -255,6 +271,8 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
 
 bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
 {
+  VkDeviceSize buffer_offset_alignment = memory->device->physical_device_props.limits.minStorageBufferOffsetAlignment;
+
   bool res;
   VkMemoryRequirements memory_requirement;
   uint32_t memory_type_idx;
@@ -310,6 +328,8 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     // and the max number of SIFT that can be stored in this section.
     // When packed there a single uint32_t header containing the full number of SIFT features in the buffer
     VkDeviceSize buffer_size = (sizeof(uint32_t) * 2 * memory->max_nb_octaves) + (memory->max_nb_sift_per_buffer * sizeof(vksift_Feature));
+    // Reserve some more space to handle buffer offsets alignment (constraint when aliasing)
+    buffer_size += memory->max_nb_octaves * buffer_offset_alignment;
     res = res && vkenv_createBuffer(&memory->sift_buffer_arr[buff_idx], memory->device, 0, buffer_size,
                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                     VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
@@ -327,6 +347,8 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   // Create the SIFT count staging buffer
   res = true;
   VkDeviceSize info_buffer_size = sizeof(uint32_t) * memory->max_nb_octaves * memory->nb_sift_buffer;
+  // Reserve some more space to handle buffer offsets alignment (constraint when aliasing)
+  info_buffer_size += memory->max_nb_octaves * buffer_offset_alignment;
   res = res && vkenv_createBuffer(&memory->sift_count_staging_buffer, memory->device, 0, info_buffer_size,
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
   vkGetBufferMemoryRequirements(memory->device->device, memory->sift_count_staging_buffer, &memory_requirement);
@@ -393,6 +415,8 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   // Create the orientation pipeline indirect dispatch buffer
   res = true;
   VkDeviceSize indirect_orientation_dispatch_buffer_size = (3 * sizeof(uint32_t)) * memory->max_nb_octaves;
+  // Reserve some more space to handle buffer offsets alignment (constraint when aliasing)
+  indirect_orientation_dispatch_buffer_size += memory->max_nb_octaves * buffer_offset_alignment;
   res = res && vkenv_createBuffer(&memory->indirect_orientation_dispatch_buffer, memory->device, 0, indirect_orientation_dispatch_buffer_size,
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -411,6 +435,8 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   // Create the descriptor pipeline indirect dispatch buffer
   res = true;
   VkDeviceSize indirect_descriptor_dispatch_buffer_size = (3 * sizeof(uint32_t)) * memory->max_nb_octaves;
+  // Reserve some more space to handle buffer offsets alignment (constraint when aliasing)
+  indirect_descriptor_dispatch_buffer_size += memory->max_nb_octaves * buffer_offset_alignment;
   res = res && vkenv_createBuffer(&memory->indirect_descriptor_dispatch_buffer, memory->device, 0, indirect_descriptor_dispatch_buffer_size,
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -423,6 +449,20 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   {
     logError(LOG_TAG, "An error occured when setting up the indirect descriptor dispatch buffer");
     return false;
+  }
+
+  // Setup the indirect dispatch buffer offsets (for both orientation and descriptor pipelines)
+  VkDeviceSize offset_alignment = memory->device->physical_device_props.limits.minStorageBufferOffsetAlignment;
+  VkDeviceSize indispatch_oridesc_offset = 0;
+  for (uint32_t i = 0; i < memory->max_nb_octaves; i++)
+  {
+    memory->indirect_oridesc_offset_arr[i] = indispatch_oridesc_offset;
+    indispatch_oridesc_offset += sizeof(uint32_t) * 3;
+    VkDeviceSize alignment_mod = indispatch_oridesc_offset % offset_alignment;
+    if (alignment_mod)
+    {
+      indispatch_oridesc_offset += offset_alignment - alignment_mod;
+    }
   }
 
   // Create the matcher pipeline indirect dispatch buffer
@@ -513,9 +553,15 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
   {
     memory->sift_buffers_info[i].octave_section_max_nb_feat_arr = (uint32_t *)malloc(sizeof(uint32_t) * memory->max_nb_octaves);
+    memory->sift_buffers_info[i].octave_section_offset_arr = (VkDeviceSize *)malloc(sizeof(VkDeviceSize) * memory->max_nb_octaves);
+    memory->sift_buffers_info[i].octave_section_size_arr = (VkDeviceSize *)malloc(sizeof(VkDeviceSize) * memory->max_nb_octaves);
     memset(memory->sift_buffers_info[i].octave_section_max_nb_feat_arr, 0, sizeof(uint32_t) * memory->max_nb_octaves);
+    memset(memory->sift_buffers_info[i].octave_section_offset_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
+    memset(memory->sift_buffers_info[i].octave_section_size_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
     updateBufferInfo(memory, i);
   }
+  memory->indirect_oridesc_offset_arr = (VkDeviceSize *)malloc(sizeof(VkDeviceSize) * memory->max_nb_octaves);
+  memset(memory->indirect_oridesc_offset_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
 
   // Allocate Vulkan object lists (and set to NULL)
   memory->sift_buffer_arr = (VkBuffer *)malloc(sizeof(VkBuffer) * memory->nb_sift_buffer);
@@ -665,7 +711,10 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
   {
     free(memory->sift_buffers_info[i].octave_section_max_nb_feat_arr);
+    free(memory->sift_buffers_info[i].octave_section_offset_arr);
+    free(memory->sift_buffers_info[i].octave_section_size_arr);
   }
+  free(memory->indirect_oridesc_offset_arr);
   free(memory->sift_buffers_info);
   free(memory->octave_resolutions);
 

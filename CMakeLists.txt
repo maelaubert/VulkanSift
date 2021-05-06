@@ -49,9 +49,9 @@ set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/shaders/GaussianBlur.comp
     src/vulkansift/shaders/GaussianBlurInterpolated.comp
     src/vulkansift/shaders/DifferenceOfGaussian.comp
-    #src/vulkansift/sift/shaders/ExtractKeypoints.comp
-    #src/vulkansift/sift/shaders/ComputeOrientation.comp
-    #src/vulkansift/sift/shaders/ComputeDescriptors.comp
+    src/vulkansift/shaders/ExtractKeypoints.comp
+    src/vulkansift/shaders/ComputeOrientation.comp
+    src/vulkansift/shaders/ComputeDescriptors.comp
     # SIFT matching algirhtm shaders
     #src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
 )
