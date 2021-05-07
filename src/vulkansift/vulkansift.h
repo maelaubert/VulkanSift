@@ -17,7 +17,7 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr);
 
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id);
-void vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id);
+uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id);
 void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t gpu_buffer_id);
 
 // Upload SIFT to GPU buffers
@@ -25,7 +25,7 @@ void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, 
 
 // Match SIFT features from two buffers
 void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B);
-void vksift_downloadMatches(vksift_Instance instance, vksift_Feature *matches);
+void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
 // Draw an empty frame in the debug window. Necessary to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight

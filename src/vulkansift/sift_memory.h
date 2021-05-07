@@ -29,6 +29,8 @@ typedef struct vksift_SiftMemory_T
   vkenv_Device device; // parent device
 
   VkCommandPool general_command_pool;
+  VkCommandPool async_transfer_command_pool;
+  VkCommandBuffer transfer_command_buffer;
 
   // SIFT buffers
 
@@ -41,12 +43,13 @@ typedef struct vksift_SiftMemory_T
   vksift_SiftBufferInfo *sift_buffers_info; // nb_sift_buffer * (max_nb_octaves+1) * sizeof(uint32_t)
   VkBuffer *sift_buffer_arr;
   VkDeviceMemory *sift_buffer_memory_arr;
-  VkBuffer sift_count_staging_buffer;
-  VkDeviceMemory sift_count_staging_buffer_memory;
-  void *sift_count_staging_buffer_ptr;
+  VkBuffer *sift_count_staging_buffer_arr;
+  VkDeviceMemory *sift_count_staging_buffer_memory_arr;
+  void **sift_count_staging_buffer_ptr_arr;
   VkBuffer sift_staging_buffer;
   VkDeviceMemory sift_staging_buffer_memory;
   void *sift_staging_buffer_ptr;
+  VkFence *sift_buffer_fence_arr;
 
   // Pyramid objects
   VkBuffer image_staging_buffer;
@@ -99,6 +102,9 @@ typedef struct vksift_SiftMemory_T
   VkBuffer indirect_matcher_dispatch_buffer;
   VkDeviceMemory indirect_matcher_dispatch_buffer_memory;
 
+  VkQueue general_queue;
+  VkQueue async_transfer_queue;
+
   // Config
   uint32_t max_image_size;
   uint32_t max_nb_octaves;
@@ -120,6 +126,17 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
 // Need to setup image layout
 bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
                                       const uint32_t target_buffer_idx, bool *memory_layout_updated);
+
+// Read from staging buffer memory to retrieve the number of features stored in a SIFT buffer (GPU not involved in this function)
+bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_t target_buffer_idx, uint32_t *out_feat_count);
+
+// Run a transfer command to retrieve the SIFT buffer features from the GPU (run on the asynchronous transfer queue if available)
+bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *out_features_ptr);
+
+// Run a transfer command to transfer user SIFT features to the SIFT buffer on the GPU (run on the asynchronous transfer queue if available)
+bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
+                                           const uint32_t in_feat_count);
+
 // Destory every memory object and free stuffs
 void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr);
 

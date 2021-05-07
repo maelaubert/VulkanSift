@@ -142,6 +142,49 @@ bool isConfigurationValid(const vksift_Config *config)
   return config_valid;
 }
 
+bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
+{
+  if (buffer_idx > instance->sift_memory->nb_sift_buffer)
+  {
+    logError(LOG_TAG, "Provided target buffer index is (%d) but the number of reserved buffers is (%d).", buffer_idx,
+             instance->sift_memory->nb_sift_buffer);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height)
+{
+  uint32_t input_size = input_width * input_height;
+  if (input_size > instance->sift_memory->max_image_size)
+  {
+    logError(LOG_TAG, "Provided input image size (%d*%d=%d) is more than the configured maximum image size (%d).", input_width, input_height, input_size,
+             instance->sift_memory->max_image_size);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
+{
+  if (nb_feats > instance->sift_memory->max_nb_sift_per_buffer)
+  {
+    logError(LOG_TAG, "Provided features count (%d) is more than the configured maximum number of features per GPU buffer size (%d).", nb_feats,
+             instance->sift_memory->max_nb_sift_per_buffer);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
 bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
@@ -160,7 +203,14 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
   memset(instance, 0, sizeof(vksift_Instance_T));
 
   // Setup device
-  vkenv_DeviceConfig gpu_config = {.device_extension_count = 0, .device_extensions = NULL, .target_device_idx = config->gpu_device_index};
+  // We need two async transfer queue to properly do async transfers, one is only used by the memory for GPU download/upload, the other is for
+  // detection/matching SIFT buffer ownership transfers
+  vkenv_DeviceConfig gpu_config = {.device_extension_count = 0,
+                                   .device_extensions = NULL,
+                                   .nb_general_queues = 1,
+                                   .nb_async_compute_queues = 1,
+                                   .nb_async_transfer_queues = 2,
+                                   .target_device_idx = config->gpu_device_index};
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   const char *device_extension_name = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
   gpu_config.device_extension_count = 1;
@@ -207,9 +257,11 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   assert(*instance_ptr != NULL); // vksift_destroyInstance shouldn't be called on NULL Instance
   vksift_Instance instance = *instance_ptr;
 
-  // If a detection/matching process is running, wait for it to end
-  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
-  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+  if (instance->vulkan_device != NULL)
+  {
+    // Wait for anything running on the GPU to finish
+    vkDeviceWaitIdle(instance->vulkan_device->device);
+  }
 
   // Destroy SiftDetector
   VK_NULL_SAFE_DELETE(instance->sift_detector, vksift_destroySiftDetector(&instance->sift_detector));
@@ -235,9 +287,16 @@ bool vksift_presentDebugFrame(vksift_Instance instance) { return vkenv_presentDe
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id)
 {
-  // If a detection/matching process is running, wait for it to end
-  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
-  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+  if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputResolutionValid(instance, image_width, image_height))
+  {
+    logError(LOG_TAG, "vksift_detectFeatures() error: invalid input.");
+    abort();
+  }
+
+  // If a GPU task is currently using the buffer, wait for it to be available
+  // If a detection is currently running, wait for it to end
+  VkFence fences[2] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id], instance->sift_detector->end_of_detection_fence};
+  vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
 
   // Prepare memory for input resolution and update target buffer structure
   bool memory_layout_updated = false;
@@ -249,46 +308,78 @@ void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, 
 
   // Run the sift detector algorithm
   vksift_dispatchSiftDetector(instance->sift_detector, gpu_buffer_id, memory_layout_updated);
-
-  // TODO: update state to busy (consider using a fence per buffer ?)
-
-  vkWaitForFences(instance->vulkan_device->device, 1, &instance->sift_detector->end_of_detection_fence, true, UINT64_MAX);
-
-  VkMappedMemoryRange range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                               .pNext = NULL,
-                               .memory = instance->sift_memory->sift_count_staging_buffer_memory,
-                               .offset = 0,
-                               .size = VK_WHOLE_SIZE};
-  vkInvalidateMappedMemoryRanges(instance->vulkan_device->device, 1, &range);
-
-  for (uint32_t oct_i = 0; oct_i < instance->sift_memory->curr_nb_octaves; oct_i++)
-  {
-    uint32_t count = ((uint32_t *)instance->sift_memory
-                          ->sift_count_staging_buffer_ptr)[instance->sift_detector->curr_buffer_idx * instance->sift_memory->max_nb_octaves + oct_i];
-    logError(LOG_TAG, "Octave %d count: %d", oct_i, count);
-  }
 }
 
-void vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)
+uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)
 {
-  // TODO
+  if (!isBufferIdxValid(instance, gpu_buffer_id))
+  {
+    logError(LOG_TAG, "vksift_getFeaturesNumber() error: invalid input.");
+    abort();
+  }
+
+  // If a GPU task is currently using the buffer, wait for it to be available
+  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  uint32_t feat_count = 0;
+  if (!vksift_Memory_getBufferFeatureCount(instance->sift_memory, gpu_buffer_id, &feat_count))
+  {
+    logError(LOG_TAG, "vksift_getFeaturesNumber() error when retrieving the number of detected SIFT features.");
+    abort();
+  }
+  return feat_count;
 }
 void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t gpu_buffer_id)
 {
-  // TODO
+  if (!isBufferIdxValid(instance, gpu_buffer_id))
+  {
+    logError(LOG_TAG, "vksift_downloadFeatures() error: invalid input.");
+    abort();
+  }
+
+  // If a GPU task is currently using the buffer, wait for it to be available
+  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  if (!vksift_Memory_copyBufferFeaturesFromGPU(instance->sift_memory, gpu_buffer_id, feats_ptr))
+  {
+    logError(LOG_TAG, "vksift_downloadFeatures() error when downloading detection results.");
+    abort();
+  }
 }
 
 void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t nb_feats, uint32_t gpu_buffer_id)
 {
-  // TODO
+  if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputFeatureCoundValid(instance, nb_feats))
+  {
+    logError(LOG_TAG, "vksift_uploadFeatures() error: invalid input.");
+    abort();
+  }
+
+  // If a GPU task is currently using the buffer, wait for it to be available
+  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  if (!vksift_Memory_copyBufferFeaturesToGPU(instance->sift_memory, gpu_buffer_id, feats_ptr, nb_feats))
+  {
+    logError(LOG_TAG, "vksift_uploadFeatures() error when uploading SIFT features to GPU memory.");
+    abort();
+  }
 }
 
 void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B)
 {
+  if (!isBufferIdxValid(instance, gpu_buffer_id_A) || !isBufferIdxValid(instance, gpu_buffer_id_B))
+  {
+    logError(LOG_TAG, "vksift_matchFeatures() error: invalid input.");
+    abort();
+  }
+
   // TODO
 }
 
-void vksift_downloadMatches(vksift_Instance instance, vksift_Feature *matches)
+void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
 {
   // TODO
 }

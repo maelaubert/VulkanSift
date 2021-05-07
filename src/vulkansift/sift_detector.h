@@ -17,14 +17,27 @@ typedef struct vksift_SiftDetector_T
   // This defines where found features will be stored
   uint32_t curr_buffer_idx;
 
+  VkQueue general_queue;
+  VkQueue async_compute_queue;
+  VkQueue async_ownership_transfer_queue;
+
   VkCommandPool general_command_pool;
   VkCommandPool async_compute_command_pool;
+  VkCommandPool async_transfer_command_pool;
+
+  VkCommandBuffer acquire_buffer_ownership_command_buffer;
+  VkCommandBuffer release_buffer_ownership_command_buffer;
+
   VkCommandBuffer sync_command_buffer;
+  VkCommandBuffer end_of_detection_command_buffer;
 
   VkSampler image_sampler;
 
   // Sync objects
   VkFence end_of_detection_fence;
+  VkSemaphore end_of_detection_semaphore;
+  VkSemaphore buffer_ownership_released_by_transfer_semaphore;
+  VkSemaphore buffer_ownership_acquired_by_transfer_semaphore;
 
   bool debug_marker_supported;
   PFN_vkCmdDebugMarkerBeginEXT vkCmdDebugMarkerBeginEXT;

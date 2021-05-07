@@ -143,7 +143,7 @@ bool setupCommandPools(vksift_SiftDetector detector)
 {
   VkCommandPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                                       .queueFamilyIndex = detector->dev->general_queue_family_idx};
+                                       .queueFamilyIndex = detector->dev->general_queues_family_idx};
   if (vkCreateCommandPool(detector->dev->device, &pool_info, NULL, &detector->general_command_pool) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to create the general-purpose command pool");
@@ -154,10 +154,22 @@ bool setupCommandPools(vksift_SiftDetector detector)
   {
     VkCommandPoolCreateInfo async_pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                                .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                                               .queueFamilyIndex = detector->dev->async_compute_queue_family_idx};
+                                               .queueFamilyIndex = detector->dev->async_compute_queues_family_idx};
     if (vkCreateCommandPool(detector->dev->device, &async_pool_info, NULL, &detector->async_compute_command_pool) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to create the asynchronous compute command pool");
+      return false;
+    }
+  }
+
+  if (detector->dev->async_transfer_available)
+  {
+    VkCommandPoolCreateInfo async_pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                                               .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                                               .queueFamilyIndex = detector->dev->async_transfer_queues_family_idx};
+    if (vkCreateCommandPool(detector->dev->device, &async_pool_info, NULL, &detector->async_transfer_command_pool) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create the asynchronous transfer command pool");
       return false;
     }
   }
@@ -167,33 +179,38 @@ bool setupCommandPools(vksift_SiftDetector detector)
 
 bool allocateCommandBuffers(vksift_SiftDetector detector)
 {
-  if (detector->dev->async_compute_available)
-  {
-    // TODO manage async compute
-    VkCommandBufferAllocateInfo allocate_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                                                 .pNext = NULL,
-                                                 .commandPool = detector->general_command_pool,
-                                                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                                                 .commandBufferCount = 1};
+  // TODO manage async compute
 
-    if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->sync_command_buffer) != VK_SUCCESS)
+  VkCommandBufferAllocateInfo allocate_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                               .pNext = NULL,
+                                               .commandPool = detector->general_command_pool,
+                                               .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                               .commandBufferCount = 1};
+
+  if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->sync_command_buffer) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to allocate the sync command buffer on the general-purpose pool");
+    return false;
+  }
+  if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->end_of_detection_command_buffer) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to allocate the end-of-detection command buffer on the general-purpose pool");
+    return false;
+  }
+
+  // If the async tranfer queue is available the SIFT buffers are owned by the transfer queue family
+  // in this case we need to release this ownership from the transfer queue before using the buffers in the general purpose queue
+  if (detector->dev->async_transfer_available)
+  {
+    allocate_info.commandPool = detector->async_transfer_command_pool;
+    if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->release_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate the sync command buffer on the general-purpose pool");
+      logError(LOG_TAG, "Failed to allocate the release-buffer-ownership command buffer on the general-purpose pool");
       return false;
     }
-  }
-  else
-  {
-
-    VkCommandBufferAllocateInfo allocate_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                                                 .pNext = NULL,
-                                                 .commandPool = detector->general_command_pool,
-                                                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                                                 .commandBufferCount = 1};
-
-    if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->sync_command_buffer) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->acquire_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate the sync command buffer on the general-purpose pool");
+      logError(LOG_TAG, "Failed to allocate the acquire-buffer-ownership command buffer on the general-purpose pool");
       return false;
     }
   }
@@ -639,10 +656,23 @@ bool setupSyncObjects(vksift_SiftDetector detector)
   // TODO: depends on async or not, for async we may need multiple semaphores (maybe one for each octave)
   /*if(detector->dev->async_compute_available) {
 
-  }
-  else {
-
   }*/
+  VkSemaphoreCreateInfo semaphore_create_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = NULL, .flags = 0};
+  if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->end_of_detection_semaphore) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to create end-of-detection Vulkan semaphore");
+    return false;
+  }
+
+  if (detector->dev->async_transfer_available)
+  {
+    if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->buffer_ownership_released_by_transfer_semaphore) != VK_SUCCESS ||
+        vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->buffer_ownership_acquired_by_transfer_semaphore) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to create Vulkan semaphores for async transfer queue buffer ownership transfers");
+      return false;
+    }
+  }
 
   VkFenceCreateInfo fence_create_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = NULL, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
   if (vkCreateFence(detector->dev->device, &fence_create_info, NULL, &detector->end_of_detection_fence) != VK_SUCCESS)
@@ -1079,6 +1109,20 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
 
   beginMarkerRegion(detector, cmdbuf, "ExtrackKeypoints");
 
+  if (detector->dev->async_transfer_available)
+  {
+    // If the async transfer is used for buffer transfers it is the main owner, we need to acquire the buffer ownership before using it
+    for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+    {
+      buffer_barriers[oct_idx] =
+          vkenv_genBufferMemoryBarrier(sift_buffer, 0, 0, detector->dev->async_transfer_queues_family_idx, detector->dev->general_queues_family_idx,
+                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    }
+    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0,
+                         NULL);
+  }
+
   // Make sure previous writes are visible
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
@@ -1245,10 +1289,24 @@ void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, 
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
     VkBufferCopy sift_copy_region = {.srcOffset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-                                     .dstOffset = sizeof(uint32_t) * (detector->curr_buffer_idx * detector->mem->max_nb_octaves + oct_idx),
+                                     .dstOffset = sizeof(uint32_t) * oct_idx,
                                      .size = sizeof(uint32_t)};
-    vkCmdCopyBuffer(cmdbuf, sift_buffer, detector->mem->sift_count_staging_buffer, 1, &sift_copy_region);
+    vkCmdCopyBuffer(cmdbuf, sift_buffer, detector->mem->sift_count_staging_buffer_arr[detector->curr_buffer_idx], 1, &sift_copy_region);
   }
+
+  // Final operation with the buffer we can release the buffer ownership if needed
+  if (detector->dev->async_transfer_available)
+  {
+    for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+    {
+      buffer_barriers[oct_idx] =
+          vkenv_genBufferMemoryBarrier(sift_buffer, 0, 0, detector->dev->general_queues_family_idx, detector->dev->async_transfer_queues_family_idx,
+                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    }
+    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+  }
+
   endMarkerRegion(detector, cmdbuf);
 }
 
@@ -1256,6 +1314,69 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
 
+  // Write the empty command buffer used to signal that the detection work is done
+  if (vkBeginCommandBuffer(detector->end_of_detection_command_buffer, &begin_info) != VK_SUCCESS ||
+      vkEndCommandBuffer(detector->end_of_detection_command_buffer) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to record the end-of-detection command buffer");
+    return false;
+  }
+
+  /////////////////////////////////////////////////////
+  // If async transfer queue is used, record ownership transfer command buffers
+  /////////////////////////////////////////////////////
+  if (detector->dev->async_transfer_available)
+  {
+
+    VkBufferMemoryBarrier *ownership_barriers;
+    if (vkBeginCommandBuffer(detector->release_buffer_ownership_command_buffer, &begin_info) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to begin the release-buffer-ownership command buffer recording");
+      return false;
+    }
+    ownership_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * detector->mem->curr_nb_octaves);
+    for (uint32_t oct_idx = 0; oct_idx < detector->mem->curr_nb_octaves; oct_idx++)
+    {
+      ownership_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(
+          detector->mem->sift_buffer_arr[detector->curr_buffer_idx], 0, 0, detector->dev->async_transfer_queues_family_idx,
+          detector->dev->general_queues_family_idx, detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+          detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    }
+    vkCmdPipelineBarrier(detector->release_buffer_ownership_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
+                         NULL, detector->mem->curr_nb_octaves, ownership_barriers, 0, NULL);
+    free(ownership_barriers);
+    if (vkEndCommandBuffer(detector->release_buffer_ownership_command_buffer) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to record release-buffer-ownership command buffer");
+      return false;
+    }
+
+    if (vkBeginCommandBuffer(detector->acquire_buffer_ownership_command_buffer, &begin_info) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to begin the acquire-buffer-ownership command buffer recording");
+      return false;
+    }
+    ownership_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * detector->mem->curr_nb_octaves);
+    for (uint32_t oct_idx = 0; oct_idx < detector->mem->curr_nb_octaves; oct_idx++)
+    {
+      ownership_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(
+          detector->mem->sift_buffer_arr[detector->curr_buffer_idx], 0, 0, detector->dev->general_queues_family_idx,
+          detector->dev->async_transfer_queues_family_idx, detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+          detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    }
+    vkCmdPipelineBarrier(detector->acquire_buffer_ownership_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
+                         NULL, detector->mem->curr_nb_octaves, ownership_barriers, 0, NULL);
+    free(ownership_barriers);
+    if (vkEndCommandBuffer(detector->acquire_buffer_ownership_command_buffer) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to record acquire-buffer-ownership command buffer");
+      return false;
+    }
+  }
+
+  /////////////////////////////////////////////////////
+  // Write the detection command buffer
+  /////////////////////////////////////////////////////
   if (vkBeginCommandBuffer(detector->sync_command_buffer, &begin_info) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to begin the command buffer recording");
@@ -1307,6 +1428,18 @@ bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vk
   // Store parent device and memory
   detector->dev = device;
   detector->mem = memory;
+
+  // Assign queues
+  detector->general_queue = device->general_queues[0];
+  if (device->async_compute_available)
+  {
+    detector->async_compute_queue = device->async_compute_queues[0];
+  }
+  if (device->async_transfer_available)
+  {
+    detector->async_ownership_transfer_queue = device->async_transfer_queues[1]; // queue 0 used by SiftMemory only
+  }
+
   // Retrieve config
   detector->use_hardware_interp_kernel = config->use_hardware_interpolated_blur;
   detector->input_blur_level = config->input_image_blur_level;
@@ -1344,18 +1477,91 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
     logError(LOG_TAG, "rewrite stuff");
   }
 
+  // Mark the buffer as busy/GPU locked
+  vkResetFences(detector->dev->device, 1, &detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]);
   vkResetFences(detector->dev->device, 1, &detector->end_of_detection_fence);
+
+  VkPipelineStageFlags wait_dst_all_commands_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+  VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = NULL};
+  if (detector->dev->async_transfer_available)
   {
-    VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                .waitSemaphoreCount = 0,
-                                .commandBufferCount = 1,
-                                .pCommandBuffers = &detector->sync_command_buffer,
-                                .signalSemaphoreCount = 0};
-    if (vkQueueSubmit(detector->dev->general_queue, 1, &submit_info, detector->end_of_detection_fence) != VK_SUCCESS)
+    // Release SIFT buffer ownership from transfer queue
+    submit_info.waitSemaphoreCount = 0;
+    submit_info.pWaitSemaphores = NULL;
+    submit_info.pWaitDstStageMask = NULL;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &detector->release_buffer_ownership_command_buffer;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &detector->buffer_ownership_released_by_transfer_semaphore;
+    if (vkQueueSubmit(detector->async_ownership_transfer_queue, 1, &submit_info, NULL) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to submit command buffer");
+      logError(LOG_TAG, "Failed to submit ownership-release command buffer on async transfer queue");
       return false;
     }
+  }
+
+  // Main detection command buffer submit info
+  if (detector->dev->async_transfer_available)
+  {
+    // wait for buffer ownership to complete
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &detector->buffer_ownership_released_by_transfer_semaphore;
+    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+  }
+  else
+  {
+    submit_info.waitSemaphoreCount = 0;
+    submit_info.pWaitSemaphores = NULL;
+    submit_info.pWaitDstStageMask = NULL;
+  }
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &detector->sync_command_buffer;
+  submit_info.signalSemaphoreCount = 1;
+  submit_info.pSignalSemaphores = &detector->end_of_detection_semaphore;
+  if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit detection command buffer");
+    return false;
+  }
+
+  if (detector->dev->async_transfer_available)
+  {
+    // Acquire SIFT buffer ownership on the transfer queue
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &detector->end_of_detection_semaphore;
+    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &detector->acquire_buffer_ownership_command_buffer;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &detector->buffer_ownership_acquired_by_transfer_semaphore;
+    if (vkQueueSubmit(detector->async_ownership_transfer_queue, 1, &submit_info, NULL) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Failed to submit ownership-release command buffer on async transfer queue");
+      return false;
+    }
+  }
+
+  // Final command buffer (used only to signal the end-of-detection fence)
+  if (detector->dev->async_transfer_available)
+  {
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &detector->buffer_ownership_acquired_by_transfer_semaphore;
+    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+  }
+  else
+  {
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &detector->end_of_detection_semaphore;
+    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+  }
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &detector->end_of_detection_command_buffer;
+  submit_info.signalSemaphoreCount = 0;
+  submit_info.pSignalSemaphores = NULL;
+  if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detector->end_of_detection_fence) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit command buffer");
+    return false;
   }
 
   return true;
@@ -1367,17 +1573,29 @@ void vksift_destroySiftDetector(vksift_SiftDetector *detector_ptr)
   assert(*detector_ptr != NULL); // vksift_destroySiftDetector shouldn't be called on NULL vksift_SiftMemory object
   vksift_SiftDetector detector = *detector_ptr;
 
-  // Destroy sync objects
-  VK_NULL_SAFE_DELETE(detector->end_of_detection_fence, vkDestroyFence(detector->dev->device, detector->end_of_detection_fence, NULL));
-
   // Destroy sampler
   VK_NULL_SAFE_DELETE(detector->image_sampler, vkDestroySampler(detector->dev->device, detector->image_sampler, NULL));
+
+  // Destroy sync objects
+  VK_NULL_SAFE_DELETE(detector->end_of_detection_semaphore, vkDestroySemaphore(detector->dev->device, detector->end_of_detection_semaphore, NULL));
+  VK_NULL_SAFE_DELETE(detector->end_of_detection_fence, vkDestroyFence(detector->dev->device, detector->end_of_detection_fence, NULL));
+  if (detector->dev->async_transfer_available)
+  {
+    VK_NULL_SAFE_DELETE(detector->buffer_ownership_released_by_transfer_semaphore,
+                        vkDestroySemaphore(detector->dev->device, detector->buffer_ownership_released_by_transfer_semaphore, NULL));
+    VK_NULL_SAFE_DELETE(detector->buffer_ownership_acquired_by_transfer_semaphore,
+                        vkDestroySemaphore(detector->dev->device, detector->buffer_ownership_acquired_by_transfer_semaphore, NULL));
+  }
 
   // Destroy command pools
   VK_NULL_SAFE_DELETE(detector->general_command_pool, vkDestroyCommandPool(detector->dev->device, detector->general_command_pool, NULL));
   if (detector->dev->async_compute_available)
   {
     VK_NULL_SAFE_DELETE(detector->async_compute_command_pool, vkDestroyCommandPool(detector->dev->device, detector->async_compute_command_pool, NULL));
+  }
+  if (detector->dev->async_transfer_available)
+  {
+    VK_NULL_SAFE_DELETE(detector->async_transfer_command_pool, vkDestroyCommandPool(detector->dev->device, detector->async_transfer_command_pool, NULL));
   }
 
   // Destroy pipelines and descriptors

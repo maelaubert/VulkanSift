@@ -19,7 +19,7 @@ void updateScaleSpaceInfo(vksift_SiftMemory memory)
       (memory->curr_input_image_width > memory->curr_input_image_height) ? memory->curr_input_image_height : memory->curr_input_image_width;
 
   // Max number of octave for the input resolution such that the lowest dimension on the smallest octave is not less than 16 pixels
-  memory->curr_nb_octaves = log2f((float)lowest_dim) - 4 + (memory->use_upsampling ? 2 : 1);
+  memory->curr_nb_octaves = log2f((float)lowest_dim) - 4 + (memory->use_upsampling ? 1 : 0);
   // If the maximum number of octaves is more than the number of octave allowed by the configuration, use the smallest number
   if (memory->max_nb_octaves < memory->curr_nb_octaves)
   {
@@ -259,7 +259,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                        layout_change_barrier_cnt, layout_change_barriers);
 
   free(layout_change_barriers);
-  res = res && vkenv_endInstantCommandBuffer(memory->device->device, memory->device->general_queue, memory->general_command_pool, layout_change_cmdbuf);
+  res = res && vkenv_endInstantCommandBuffer(memory->device->device, memory->general_queue, memory->general_command_pool, layout_change_cmdbuf);
   if (!res)
   {
     logError(LOG_TAG, "An error occured when setting up the initial layout for the images");
@@ -346,16 +346,18 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create the SIFT count staging buffer
   res = true;
-  VkDeviceSize info_buffer_size = sizeof(uint32_t) * memory->max_nb_octaves * memory->nb_sift_buffer;
-  // Reserve some more space to handle buffer offsets alignment (constraint when aliasing)
-  info_buffer_size += memory->max_nb_octaves * buffer_offset_alignment;
-  res = res && vkenv_createBuffer(&memory->sift_count_staging_buffer, memory->device, 0, info_buffer_size,
-                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->sift_count_staging_buffer, &memory_requirement);
-  res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
-                                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
-  res = res && vkenv_allocateMemory(&memory->sift_count_staging_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
-  res = res && vkenv_bindBufferMemory(memory->device, memory->sift_count_staging_buffer, memory->sift_count_staging_buffer_memory, 0u);
+  for (uint32_t buff_idx = 0; buff_idx < memory->nb_sift_buffer; buff_idx++)
+  {
+    VkDeviceSize info_buffer_size = sizeof(uint32_t) * memory->max_nb_octaves;
+    res = res && vkenv_createBuffer(&memory->sift_count_staging_buffer_arr[buff_idx], memory->device, 0, info_buffer_size,
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
+    vkGetBufferMemoryRequirements(memory->device->device, memory->sift_count_staging_buffer_arr[buff_idx], &memory_requirement);
+    res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
+    res = res && vkenv_allocateMemory(&memory->sift_count_staging_buffer_memory_arr[buff_idx], memory->device, memory_requirement.size, memory_type_idx);
+    res = res && vkenv_bindBufferMemory(memory->device, memory->sift_count_staging_buffer_arr[buff_idx],
+                                        memory->sift_count_staging_buffer_memory_arr[buff_idx], 0u);
+  }
   if (!res)
   {
     logError(LOG_TAG, "An error occured when setting up the SIFT info buffer");
@@ -482,6 +484,19 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     return false;
   }
 
+  // Create the SIFT buffer fences (created as signaled, signaled means not currently used)
+  res = true;
+  VkFenceCreateInfo fence_create_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = NULL, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+  for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
+  {
+    res = res && (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->sift_buffer_fence_arr[i]) == VK_SUCCESS);
+  }
+  if (!res)
+  {
+    logError(LOG_TAG, "An error occured when creating the SIFT buffer fences");
+    return false;
+  }
+
   //////////////////////////////////////////////////////////////////////
   // Map staging objects
   //////////////////////////////////////////////////////////////////////
@@ -490,10 +505,13 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
         (vkMapMemory(memory->device->device, memory->image_staging_buffer_memory, 0, VK_WHOLE_SIZE, 0, &memory->image_staging_buffer_ptr) == VK_SUCCESS);
   res = res &&
         (vkMapMemory(memory->device->device, memory->sift_staging_buffer_memory, 0, VK_WHOLE_SIZE, 0, &memory->sift_staging_buffer_ptr) == VK_SUCCESS);
-  res = res && (vkMapMemory(memory->device->device, memory->sift_count_staging_buffer_memory, 0, VK_WHOLE_SIZE, 0,
-                            &memory->sift_count_staging_buffer_ptr) == VK_SUCCESS);
   res = res && (vkMapMemory(memory->device->device, memory->match_output_staging_buffer_memory, 0, VK_WHOLE_SIZE, 0,
                             &memory->match_output_staging_buffer_ptr) == VK_SUCCESS);
+  for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
+  {
+    res = res && (vkMapMemory(memory->device->device, memory->sift_count_staging_buffer_memory_arr[i], 0, VK_WHOLE_SIZE, 0,
+                              &memory->sift_count_staging_buffer_ptr_arr[i]) == VK_SUCCESS);
+  }
   if (!res)
   {
     logError(LOG_TAG, "An error occured when mapping the staging buffers");
@@ -515,6 +533,13 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
 
   // Copy parent device (used for almost every vulkan call)
   memory->device = device;
+  // Assign queues
+  memory->general_queue = device->general_queues[0]; // used for image layouts change
+  if (device->async_transfer_available)
+  {
+    memory->async_transfer_queue = device->async_transfer_queues[0];
+  }
+
   // Copy configuration info
   memory->max_image_size = config->input_image_max_size;
   memory->nb_scales_per_octave = config->nb_scales_per_octave;
@@ -535,7 +560,7 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   // lowest image dimension superior to the current width/height, so the maximum number of octave we will ever have is the number of
   // successive x2 downsampling + 1 (+1 is for the octave with input image resolution) such that the downscalled width/height is more than 16 pixels.
   // Width/height being coded by log2(width) bits, we can perform exactly log2(width)-log(16) = log2(width)-4 successing x2 subsampling.
-  memory->max_nb_octaves = log2f((float)memory->curr_input_image_width) - 4 + (memory->use_upsampling ? 2 : 1);
+  memory->max_nb_octaves = log2f((float)memory->curr_input_image_width) - 4 + (memory->use_upsampling ? 1 : 0);
   // If user defined the number of octave per image take the minimum number of octave
   if (config->nb_octaves > 0 && config->nb_octaves < memory->max_nb_octaves)
   {
@@ -566,8 +591,17 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   // Allocate Vulkan object lists (and set to NULL)
   memory->sift_buffer_arr = (VkBuffer *)malloc(sizeof(VkBuffer) * memory->nb_sift_buffer);
   memory->sift_buffer_memory_arr = (VkDeviceMemory *)malloc(sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
+  memory->sift_buffer_fence_arr = (VkFence *)malloc(sizeof(VkFence) * memory->nb_sift_buffer);
   memset(memory->sift_buffer_arr, 0, sizeof(VkBuffer) * memory->nb_sift_buffer);
   memset(memory->sift_buffer_memory_arr, 0, sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
+  memset(memory->sift_buffer_fence_arr, 0, sizeof(VkFence) * memory->nb_sift_buffer);
+
+  memory->sift_count_staging_buffer_arr = (VkBuffer *)malloc(sizeof(VkBuffer) * memory->nb_sift_buffer);
+  memory->sift_count_staging_buffer_memory_arr = (VkDeviceMemory *)malloc(sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
+  memory->sift_count_staging_buffer_ptr_arr = (void **)malloc(sizeof(void *) * memory->nb_sift_buffer);
+  memset(memory->sift_count_staging_buffer_arr, 0, sizeof(VkBuffer) * memory->nb_sift_buffer);
+  memset(memory->sift_count_staging_buffer_memory_arr, 0, sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
+  memset(memory->sift_count_staging_buffer_ptr_arr, 0, sizeof(VkFence) * memory->nb_sift_buffer);
 
   memory->blur_tmp_image_arr = (VkImage *)malloc(sizeof(VkImage) * memory->max_nb_octaves);
   memory->blur_tmp_image_view_arr = (VkImageView *)malloc(sizeof(VkImageView) * memory->max_nb_octaves);
@@ -596,14 +630,43 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   memset(memory->octave_DoG_image_memory_arr, 0, sizeof(VkDeviceMemory) * memory->max_nb_octaves);
   memset(memory->octave_DoG_image_memory_size_arr, 0, sizeof(VkDeviceSize) * memory->max_nb_octaves);
 
-  // Setup the command pools
-  VkCommandPoolCreateInfo general_cmdpool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-                                                  .pNext = NULL,
-                                                  .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                                                  .queueFamilyIndex = device->general_queue_family_idx};
-  if (vkCreateCommandPool(memory->device->device, &general_cmdpool_info, NULL, &memory->general_command_pool) != VK_SUCCESS)
+  // Setup the command pools (we always need the general purpose queue for image layout transfers)
+  VkCommandPoolCreateInfo cmdpool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                                          .pNext = NULL,
+                                          .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                                          .queueFamilyIndex = memory->device->general_queues_family_idx};
+  if (vkCreateCommandPool(memory->device->device, &cmdpool_info, NULL, &memory->general_command_pool) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Sift memory creation failed: could not setup the general purpose command pool");
+    vksift_destroySiftMemory(memory_ptr);
+    return false;
+  }
+  // If the GPU has an asynchronous transfer queue use it for the memory transfers (upload, download, packing)
+  if (memory->device->async_transfer_available)
+  {
+    cmdpool_info.queueFamilyIndex = device->async_transfer_queues_family_idx;
+    if (vkCreateCommandPool(memory->device->device, &cmdpool_info, NULL, &memory->async_transfer_command_pool) != VK_SUCCESS)
+    {
+      logError(LOG_TAG, "Sift memory creation failed: could not setup the asynchronous transfer command pool");
+      vksift_destroySiftMemory(memory_ptr);
+      return false;
+    }
+  }
+
+  // Reserve one command buffer used to perform the transfers
+  VkCommandBufferAllocateInfo cmdbuf_alloc_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                                   .pNext = NULL,
+                                                   .commandPool = memory->general_command_pool,
+                                                   .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                                   .commandBufferCount = 1};
+  if (memory->device->async_transfer_available)
+  {
+    // Use the async transfer cmdpool if available as the default
+    cmdbuf_alloc_info.commandPool = memory->async_transfer_command_pool;
+  }
+  if (vkAllocateCommandBuffers(memory->device->device, &cmdbuf_alloc_info, &memory->transfer_command_buffer) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Sift memory creation failed: failed to allocate the transfer command buffer");
     vksift_destroySiftMemory(memory_ptr);
     return false;
   }
@@ -634,10 +697,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   {
     vkUnmapMemory(memory->device->device, memory->sift_staging_buffer_memory);
   }
-  if (memory->sift_count_staging_buffer_memory != NULL)
-  {
-    vkUnmapMemory(memory->device->device, memory->sift_count_staging_buffer_memory);
-  }
   if (memory->match_output_staging_buffer_memory != NULL)
   {
     vkUnmapMemory(memory->device->device, memory->match_output_staging_buffer_memory);
@@ -646,10 +705,20 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   // Destroy Vulkan buffers and memory
   for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
   {
+    // Handle SIFT count unmapping and object destruction/deallocation
+
+    if (memory->sift_count_staging_buffer_memory_arr[i] != NULL)
+    {
+      vkUnmapMemory(memory->device->device, memory->sift_count_staging_buffer_memory_arr[i]);
+    }
+    VK_NULL_SAFE_DELETE(memory->sift_count_staging_buffer_arr[i], vkDestroyBuffer(memory->device->device, memory->sift_count_staging_buffer_arr[i], NULL));
+    VK_NULL_SAFE_DELETE(memory->sift_count_staging_buffer_memory_arr[i],
+                        vkFreeMemory(memory->device->device, memory->sift_count_staging_buffer_memory_arr[i], NULL))
+
     VK_NULL_SAFE_DELETE(memory->sift_buffer_arr[i], vkDestroyBuffer(memory->device->device, memory->sift_buffer_arr[i], NULL));
     VK_NULL_SAFE_DELETE(memory->sift_buffer_memory_arr[i], vkFreeMemory(memory->device->device, memory->sift_buffer_memory_arr[i], NULL));
+    VK_NULL_SAFE_DELETE(memory->sift_buffer_fence_arr[i], vkDestroyFence(memory->device->device, memory->sift_buffer_fence_arr[i], NULL));
   }
-  VK_NULL_SAFE_DELETE(memory->sift_count_staging_buffer, vkDestroyBuffer(memory->device->device, memory->sift_count_staging_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->sift_staging_buffer, vkDestroyBuffer(memory->device->device, memory->sift_staging_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->image_staging_buffer, vkDestroyBuffer(memory->device->device, memory->image_staging_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->match_output_buffer, vkDestroyBuffer(memory->device->device, memory->match_output_buffer, NULL));
@@ -660,7 +729,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
                       vkDestroyBuffer(memory->device->device, memory->indirect_descriptor_dispatch_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->indirect_matcher_dispatch_buffer, vkDestroyBuffer(memory->device->device, memory->indirect_matcher_dispatch_buffer, NULL));
 
-  VK_NULL_SAFE_DELETE(memory->sift_count_staging_buffer_memory, vkFreeMemory(memory->device->device, memory->sift_count_staging_buffer_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->sift_staging_buffer_memory, vkFreeMemory(memory->device->device, memory->sift_staging_buffer_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->image_staging_buffer_memory, vkFreeMemory(memory->device->device, memory->image_staging_buffer_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->match_output_buffer_memory, vkFreeMemory(memory->device->device, memory->match_output_buffer_memory, NULL));
@@ -694,11 +762,18 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   VK_NULL_SAFE_DELETE(memory->output_image_memory, vkFreeMemory(memory->device->device, memory->output_image_memory, NULL));
 
   // Destroy command pool
+  if (memory->device->async_transfer_available)
+  {
+    VK_NULL_SAFE_DELETE(memory->async_transfer_command_pool, vkDestroyCommandPool(memory->device->device, memory->async_transfer_command_pool, NULL));
+  }
   VK_NULL_SAFE_DELETE(memory->general_command_pool, vkDestroyCommandPool(memory->device->device, memory->general_command_pool, NULL));
 
   // Release any allocated data
   free(memory->sift_buffer_arr);
   free(memory->sift_buffer_memory_arr);
+  free(memory->sift_count_staging_buffer_arr);
+  free(memory->sift_count_staging_buffer_memory_arr);
+  free(memory->sift_count_staging_buffer_ptr_arr);
   free(memory->blur_tmp_image_arr);
   free(memory->blur_tmp_image_view_arr);
   free(memory->blur_tmp_image_memory_arr);
@@ -716,6 +791,7 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   }
   free(memory->indirect_oridesc_offset_arr);
   free(memory->sift_buffers_info);
+  free(memory->sift_buffer_fence_arr);
   free(memory->octave_resolutions);
 
   // Releave vksift_Memory memory
@@ -783,5 +859,130 @@ bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *i
     return false;
   }
 
+  return true;
+}
+
+bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_t target_buffer_idx, uint32_t *out_feat_count)
+{
+  VkMappedMemoryRange range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                               .pNext = NULL,
+                               .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
+                               .offset = 0,
+                               .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT count buffer memory");
+    return false;
+  }
+
+  uint32_t feature_sum = 0;
+  uint32_t nb_feat_lost = 0;
+  // Using max_nb_octaves here because curr_nb_octave is only for the current pyramid
+  for (uint32_t oct_i = 0; oct_i < memory->max_nb_octaves; oct_i++)
+  {
+    uint32_t max_nb_feat = memory->sift_buffers_info[target_buffer_idx].octave_section_max_nb_feat_arr[oct_i];
+    uint32_t oct_nb_feat = ((uint32_t *)memory->sift_count_staging_buffer_ptr_arr[target_buffer_idx])[oct_i];
+    // logError(LOG_TAG, "Octave %d count: %d / %d", oct_i, oct_nb_feat, max_nb_feat);
+    if (oct_nb_feat > max_nb_feat)
+    {
+      // If some features were found but the buffer was full (not written to buffers, only to counter)
+      nb_feat_lost += oct_nb_feat - max_nb_feat;
+      oct_nb_feat = max_nb_feat;
+    }
+    feature_sum += oct_nb_feat;
+  }
+  if (nb_feat_lost > 0)
+  {
+    logError(LOG_TAG,
+             "%d feature(s) lost because the SIFT buffer was full, consider increasing "
+             "the maximum number of SIFT features per buffer in the configuration.",
+             nb_feat_lost);
+  }
+
+  *out_feat_count = feature_sum;
+  return true;
+}
+
+bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *out_features_ptr)
+{
+  // Invalidate staging since we will read the number of features per octave again
+  VkMappedMemoryRange range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                               .pNext = NULL,
+                               .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
+                               .offset = 0,
+                               .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT count buffer memory");
+    return false;
+  }
+
+  VkCommandBufferBeginInfo cmdbuf_begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = NULL, .flags = 0, .pInheritanceInfo = NULL};
+  bool res = true;
+  res = res && (vkBeginCommandBuffer(memory->transfer_command_buffer, &cmdbuf_begin_info) == VK_SUCCESS);
+
+  VkDeviceSize staging_offset = 0u;
+  uint32_t feature_sum = 0;
+  for (uint32_t oct_i = 0; oct_i < memory->max_nb_octaves; oct_i++)
+  {
+    uint32_t max_nb_feat = memory->sift_buffers_info[target_buffer_idx].octave_section_max_nb_feat_arr[oct_i];
+    uint32_t oct_nb_feat = ((uint32_t *)memory->sift_count_staging_buffer_ptr_arr[target_buffer_idx])[oct_i];
+    if (oct_nb_feat > max_nb_feat)
+    {
+      oct_nb_feat = max_nb_feat;
+    }
+    feature_sum += oct_nb_feat;
+    // sift_copy_region srcOffset doesn't copy the section header
+    VkBufferCopy sift_copy_region = {.srcOffset = memory->sift_buffers_info[target_buffer_idx].octave_section_offset_arr[oct_i] + sizeof(uint32_t) * 2,
+                                     .dstOffset = staging_offset,
+                                     .size = sizeof(vksift_Feature) * oct_nb_feat};
+    vkCmdCopyBuffer(memory->transfer_command_buffer, memory->sift_buffer_arr[target_buffer_idx], memory->sift_staging_buffer, 1, &sift_copy_region);
+    staging_offset += sizeof(vksift_Feature) * oct_nb_feat;
+  }
+  res = res && (vkEndCommandBuffer(memory->transfer_command_buffer) == VK_SUCCESS);
+  if (!res)
+  {
+    logError(LOG_TAG, "Failed to record the GPU->CPU SIFT buffer transfer command buffer");
+    return false;
+  }
+
+  // Reset buffer fence
+  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
+
+  VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                              .pNext = NULL,
+                              .waitSemaphoreCount = 0,
+                              .pWaitSemaphores = NULL,
+                              .pWaitDstStageMask = NULL,
+                              .commandBufferCount = 1,
+                              .pCommandBuffers = &memory->transfer_command_buffer,
+                              .signalSemaphoreCount = 0,
+                              .pSignalSemaphores = NULL};
+  VkQueue target_queue = memory->general_queue;
+  if (memory->device->async_transfer_available)
+  {
+    target_queue = memory->async_transfer_queue;
+  }
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit the GPU->CPU SIFT buffer transfer command buffer");
+    return false;
+  }
+  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Error when waiting for GPU->CPU SIFT buffer transfer to complete");
+    return false;
+  }
+
+  // At this point the features are stored in the sift staging buffer, we can just copy them to user memory
+  memcpy(out_features_ptr, memory->sift_staging_buffer_ptr, sizeof(vksift_Feature) * feature_sum);
+
+  return true;
+}
+
+bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
+                                           const uint32_t in_feat_count)
+{
+  //
   return true;
 }
