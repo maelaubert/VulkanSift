@@ -28,7 +28,7 @@ typedef struct
 
 void getGPUDebugMarkerFuncs(vksift_SiftDetector detector)
 {
-  detector->vkCmdDebugMarkerBeginEXT = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(detector->dev->device, "VkDebugMarkerMarkerInfoEXT");
+  detector->vkCmdDebugMarkerBeginEXT = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(detector->dev->device, "vkCmdDebugMarkerBeginEXT");
   detector->vkCmdDebugMarkerEndEXT = (PFN_vkCmdDebugMarkerEndEXT)vkGetDeviceProcAddr(detector->dev->device, "vkCmdDebugMarkerEndEXT");
   detector->debug_marker_supported = (detector->vkCmdDebugMarkerBeginEXT != NULL) && (detector->vkCmdDebugMarkerEndEXT != NULL);
 }
@@ -1099,8 +1099,8 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
     ExtractKeypointsPushConsts pushconst;
     pushconst.sigma_multiplier = detector->seed_scale_sigma;
     // scale factor applied to the blur level (sigma) (ex: oct1 = 1.6 * scale_factor=1, oct2 = 1.6*scale_factor=2)
-    pushconst.scale_factor = powf(2.f, oct_idx);
-    pushconst.dog_threshold = detector->intensity_threshold;
+    pushconst.scale_factor = powf(2.f, oct_idx) * (detector->mem->use_upsampling ? 0.5f : 1.f);
+    pushconst.dog_threshold = detector->intensity_threshold / detector->mem->nb_scales_per_octave;
     pushconst.edge_threshold = detector->edge_threshold;
     // logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
     vkCmdPushConstants(cmdbuf, detector->extractkpts_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ExtractKeypointsPushConsts), &pushconst);

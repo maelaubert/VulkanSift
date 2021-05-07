@@ -21,6 +21,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(r32f, binding = 0) uniform image2DArray dog_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
+    uint max_nb_feat;
     SIFT_Feat data[];
 };
 layout(std430, binding = 2) buffer IndispatchBuffer {
@@ -205,16 +206,19 @@ void main() {
                     if ((edgeness < (pow(push_const.edge_threshold + 1, 2.0f) / push_const.edge_threshold))&&(edgeness>=0))
                     {
                         uint idx = atomicAdd(nb_elem, 1);
-                        atomicAdd(nb_x_group, 1);
-                        data[idx].x = subpix_x;
-                        data[idx].y = subpix_y;
-                        data[idx].index_scale = uint(round(subpix_s));
-                        data[idx].scale_factor = push_const.scale_factor;
-                        data[idx].sigma = push_const.sigma_multiplier* pow(2.f, subpix_s/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
-                        data[idx].theta = 0.f;
-                        data[idx].orig_x = uint(round(push_const.scale_factor*subpix_x));
-                        data[idx].orig_y = uint(round(push_const.scale_factor*subpix_y));
-                        data[idx].value = new_val;
+                        if(idx<max_nb_feat) {
+                            // avoid out of bound memory writes
+                            atomicAdd(nb_x_group, 1);
+                            data[idx].x = subpix_x;
+                            data[idx].y = subpix_y;
+                            data[idx].index_scale = uint(round(subpix_s));
+                            data[idx].scale_factor = push_const.scale_factor;
+                            data[idx].sigma = push_const.sigma_multiplier* pow(2.f, 1/float(gl_NumWorkGroups.z))*pow(2.f, subpix_s/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
+                            data[idx].theta = 0.f;
+                            data[idx].orig_x = uint(round(push_const.scale_factor*subpix_x));
+                            data[idx].orig_y = uint(round(push_const.scale_factor*subpix_y));
+                            data[idx].value = new_val;
+                        }
                     }
                 }
             }

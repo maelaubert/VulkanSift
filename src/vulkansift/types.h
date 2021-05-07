@@ -96,7 +96,7 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
                                               .nb_scales_per_octave = 3u,   // Lowe's paper
                                               .input_image_blur_level = 0.5f,
                                               .seed_scale_sigma = 1.6f, // Lowe's paper
-                                              .constrast_threshold = 0.04f,
+                                              .intensity_threshold = 0.04f,
                                               .edge_threshold = 10.f,                 // Lowe's paper
                                               .max_nb_orientation_per_keypoint = 0,   // no limit
                                               .gpu_device_index = -1,                 // GPU auto-selection
