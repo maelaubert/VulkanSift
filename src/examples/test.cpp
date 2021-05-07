@@ -83,6 +83,9 @@ int main()
     vksift_downloadFeatures(vksift_instance, feats.data(), 0u);
     auto download1_ts = std::chrono::high_resolution_clock::now();
 
+    vksift_uploadFeatures(vksift_instance, feats.data(), feats.size(), 0);
+    auto upload1_ts = std::chrono::high_resolution_clock::now();
+
     cv::Mat frame = getOrientedKeypointsImage(grayimg.data, feats, grayimg.cols, grayimg.rows);
     cv::imshow("test", frame);
     cv::waitKey(1);
@@ -90,10 +93,15 @@ int main()
     vksift_downloadFeatures(vksift_instance, feats.data(), 1u);
     auto download2_ts = std::chrono::high_resolution_clock::now();
 
+    vksift_uploadFeatures(vksift_instance, feats.data(), feats.size(), 1);
+    auto upload2_ts = std::chrono::high_resolution_clock::now();
+
     std::cout << "Time to detect1: " << std::chrono::duration_cast<std::chrono::microseconds>(detect1_ts - start_ts).count() / 1000.f << std::endl;
     std::cout << "Time to detect2: " << std::chrono::duration_cast<std::chrono::microseconds>(detect2_ts - start_ts).count() / 1000.f << std::endl;
     std::cout << "Time to download1: " << std::chrono::duration_cast<std::chrono::microseconds>(download1_ts - start_ts).count() / 1000.f << std::endl;
     std::cout << "Time to download2: " << std::chrono::duration_cast<std::chrono::microseconds>(download2_ts - start_ts).count() / 1000.f << std::endl;
+    std::cout << "Time to upload1: " << std::chrono::duration_cast<std::chrono::microseconds>(upload1_ts - start_ts).count() / 1000.f << std::endl;
+    std::cout << "Time to upload2: " << std::chrono::duration_cast<std::chrono::microseconds>(upload2_ts - start_ts).count() / 1000.f << std::endl;
 
     // buffer_idx = (buffer_idx + 1) % config.sift_buffer_count;
   }

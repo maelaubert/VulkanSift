@@ -366,7 +366,7 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create the SIFT staging buffer
   res = true;
-  VkDeviceSize sift_staging_buffer_size = memory->max_nb_sift_per_buffer * sizeof(vksift_Feature);
+  VkDeviceSize sift_staging_buffer_size = memory->max_nb_sift_per_buffer * sizeof(vksift_Feature) + sizeof(uint32_t);
   res = res && vkenv_createBuffer(&memory->sift_staging_buffer, memory->device, 0, sift_staging_buffer_size,
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
   vkGetBufferMemoryRequirements(memory->device->device, memory->sift_staging_buffer, &memory_requirement);
@@ -906,12 +906,12 @@ bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_
 bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *out_features_ptr)
 {
   // Invalidate staging since we will read the number of features per octave again
-  VkMappedMemoryRange range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                               .pNext = NULL,
-                               .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
-                               .offset = 0,
-                               .size = VK_WHOLE_SIZE};
-  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &range) != VK_SUCCESS)
+  VkMappedMemoryRange sift_count_buffer_range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                                                 .pNext = NULL,
+                                                 .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
+                                                 .offset = 0,
+                                                 .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &sift_count_buffer_range) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to invalidate the SIFT count buffer memory");
     return false;
@@ -974,6 +974,15 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
     return false;
   }
 
+  // Invalidate SIFT staging buffer to be sure the transfer results are visible on the CPU
+  VkMappedMemoryRange sift_buffer_range = {
+      .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .pNext = NULL, .memory = memory->sift_staging_buffer_memory, .offset = 0, .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &sift_buffer_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT staging buffer memory");
+    return false;
+  }
+
   // At this point the features are stored in the sift staging buffer, we can just copy them to user memory
   memcpy(out_features_ptr, memory->sift_staging_buffer_ptr, sizeof(vksift_Feature) * feature_sum);
 
@@ -983,6 +992,71 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
 bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
                                            const uint32_t in_feat_count)
 {
-  //
+  // SIFT buffers from the users are always stored packed on the GPU (packed buffers have the sormat [nb_features (uint32), feat1, feat2, ...])
+  // since they will be used for matching
+
+  // Invalidate SIFT staging buffer
+  VkMappedMemoryRange sift_buffer_range = {
+      .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .pNext = NULL, .memory = memory->sift_staging_buffer_memory, .offset = 0, .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &sift_buffer_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT staging buffer memory");
+    return false;
+  }
+
+  // Copy to staging with the packed format
+  memcpy(memory->sift_staging_buffer_ptr, &in_feat_count, sizeof(uint32_t));
+  memcpy(((uint32_t *)memory->sift_staging_buffer_ptr) + 1, in_features_ptr, sizeof(vksift_Feature) * in_feat_count);
+
+  // Flush the CPU writes to make them visible for the next GPU commands
+  if (vkFlushMappedMemoryRanges(memory->device->device, 1, &sift_buffer_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to flush the SIFT staging buffer memory");
+    return false;
+  }
+
+  // Record the CPU->GPU transfer command buffer
+  VkCommandBufferBeginInfo cmdbuf_begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = NULL, .flags = 0, .pInheritanceInfo = NULL};
+  bool res = true;
+  res = res && (vkBeginCommandBuffer(memory->transfer_command_buffer, &cmdbuf_begin_info) == VK_SUCCESS);
+
+  // Copy of the staging buffer to the SIFT buffer, everything is aligned so this is straightforward
+  VkBufferCopy sift_copy_region = {.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(vksift_Feature) * in_feat_count + sizeof(uint32_t)};
+  vkCmdCopyBuffer(memory->transfer_command_buffer, memory->sift_staging_buffer, memory->sift_buffer_arr[target_buffer_idx], 1, &sift_copy_region);
+
+  res = res && (vkEndCommandBuffer(memory->transfer_command_buffer) == VK_SUCCESS);
+  if (!res)
+  {
+    logError(LOG_TAG, "Failed to record the GPU->CPU SIFT buffer transfer command buffer");
+    return false;
+  }
+
+  // Reset buffer fence
+  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
+  VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                              .pNext = NULL,
+                              .waitSemaphoreCount = 0,
+                              .pWaitSemaphores = NULL,
+                              .pWaitDstStageMask = NULL,
+                              .commandBufferCount = 1,
+                              .pCommandBuffers = &memory->transfer_command_buffer,
+                              .signalSemaphoreCount = 0,
+                              .pSignalSemaphores = NULL};
+  VkQueue target_queue = memory->general_queue;
+  if (memory->device->async_transfer_available)
+  {
+    target_queue = memory->async_transfer_queue;
+  }
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit the CPU->GPU SIFT buffer transfer command buffer");
+    return false;
+  }
+  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Error when waiting for CPU->GPU SIFT buffer transfer to complete");
+    return false;
+  }
+
   return true;
 }
