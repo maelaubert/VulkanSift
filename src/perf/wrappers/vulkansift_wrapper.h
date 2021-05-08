@@ -2,7 +2,10 @@
 #define PERF_VUKANSIFT_WRAPPER_H
 
 #include "perf/wrappers/wrapper.h"
+extern "C"
+{
 #include <vulkansift/vulkansift.h>
+}
 
 class VulkanSiftDetector : public AbstractSiftDetector
 {
@@ -15,8 +18,7 @@ class VulkanSiftDetector : public AbstractSiftDetector
 
   private:
   uint8_t *allocAndFillGreyBufferFromCvMat(cv::Mat image);
-  VulkanInstance m_instance;
-  VulkanSIFT::SiftMatcher m_matcher;
+  vksift_Instance sift_instance;
 };
 
 #endif // PERF_VUKANSIFT_WRAPPER_H
