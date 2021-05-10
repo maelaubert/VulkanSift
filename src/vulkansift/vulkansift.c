@@ -208,7 +208,7 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
   vkenv_DeviceConfig gpu_config = {.device_extension_count = 0,
                                    .device_extensions = NULL,
                                    .nb_general_queues = 1,
-                                   .nb_async_compute_queues = 1,
+                                   .nb_async_compute_queues = 0,
                                    .nb_async_transfer_queues = 2,
                                    .target_device_idx = config->gpu_device_index};
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)

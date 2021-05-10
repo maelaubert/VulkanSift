@@ -68,6 +68,7 @@ int main()
     return -1;
   }
 
+  std::vector<vksift_Feature> feats;
   while (vksift_presentDebugFrame(vksift_instance))
   {
     auto start_ts = std::chrono::high_resolution_clock::now();
@@ -78,7 +79,6 @@ int main()
 
     uint32_t nb_sift = vksift_getFeaturesNumber(vksift_instance, 0u);
     std::cout << "Feature found: " << nb_sift << std::endl;
-    std::vector<vksift_Feature> feats;
     feats.resize(nb_sift);
     vksift_downloadFeatures(vksift_instance, feats.data(), 0u);
     auto download1_ts = std::chrono::high_resolution_clock::now();

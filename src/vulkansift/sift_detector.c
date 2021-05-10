@@ -150,18 +150,6 @@ bool setupCommandPools(vksift_SiftDetector detector)
     return false;
   }
 
-  if (detector->dev->async_compute_available)
-  {
-    VkCommandPoolCreateInfo async_pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-                                               .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                                               .queueFamilyIndex = detector->dev->async_compute_queues_family_idx};
-    if (vkCreateCommandPool(detector->dev->device, &async_pool_info, NULL, &detector->async_compute_command_pool) != VK_SUCCESS)
-    {
-      logError(LOG_TAG, "Failed to create the asynchronous compute command pool");
-      return false;
-    }
-  }
-
   if (detector->dev->async_transfer_available)
   {
     VkCommandPoolCreateInfo async_pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -179,22 +167,19 @@ bool setupCommandPools(vksift_SiftDetector detector)
 
 bool allocateCommandBuffers(vksift_SiftDetector detector)
 {
-  // TODO manage async compute
-
   VkCommandBufferAllocateInfo allocate_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
                                                .pNext = NULL,
                                                .commandPool = detector->general_command_pool,
                                                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                                                .commandBufferCount = 1};
-
-  if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->sync_command_buffer) != VK_SUCCESS)
+  if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->detection_command_buffer) != VK_SUCCESS)
   {
-    logError(LOG_TAG, "Failed to allocate the sync command buffer on the general-purpose pool");
+    logError(LOG_TAG, "Failed to allocate the detection command buffe");
     return false;
   }
   if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->end_of_detection_command_buffer) != VK_SUCCESS)
   {
-    logError(LOG_TAG, "Failed to allocate the end-of-detection command buffer on the general-purpose pool");
+    logError(LOG_TAG, "Failed to allocate the end-of-detection command buffer");
     return false;
   }
 
@@ -205,12 +190,12 @@ bool allocateCommandBuffers(vksift_SiftDetector detector)
     allocate_info.commandPool = detector->async_transfer_command_pool;
     if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->release_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate the release-buffer-ownership command buffer on the general-purpose pool");
+      logError(LOG_TAG, "Failed to allocate the release-buffer-ownership command buffer on the async transfer pool");
       return false;
     }
     if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->acquire_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to allocate the acquire-buffer-ownership command buffer on the general-purpose pool");
+      logError(LOG_TAG, "Failed to allocate the acquire-buffer-ownership command buffer on the async transfer pool");
       return false;
     }
   }
@@ -653,10 +638,6 @@ bool setupComputePipelines(vksift_SiftDetector detector)
 
 bool setupSyncObjects(vksift_SiftDetector detector)
 {
-  // TODO: depends on async or not, for async we may need multiple semaphores (maybe one for each octave)
-  /*if(detector->dev->async_compute_available) {
-
-  }*/
   VkSemaphoreCreateInfo semaphore_create_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = NULL, .flags = 0};
   if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->end_of_detection_semaphore) != VK_SUCCESS)
   {
@@ -875,30 +856,6 @@ bool writeDescriptorSets(vksift_SiftDetector detector)
   return true;
 }
 
-void recClearDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
-{
-  /////////////////////////////////////////////////
-  // Clear data
-  /////////////////////////////////////////////////
-  beginMarkerRegion(detector, cmdbuf, "Clear data");
-
-  vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, 0, VK_WHOLE_SIZE, 1);
-  vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, 0, VK_WHOLE_SIZE, 1);
-  for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
-  {
-    // Only reset the indirect dispatch buffers and the SIFT buffer section headers (sift counter and max nb sift)
-    uint32_t sift_section_offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[i];
-    uint32_t section_max_nb_feat = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_max_nb_feat_arr[i];
-    vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset, sizeof(uint32_t), 0);
-    vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset + sizeof(uint32_t), sizeof(uint32_t),
-                    section_max_nb_feat);
-
-    // Set the group size x to 0 for the orientation and descriptor
-    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[i], sizeof(uint32_t), 0);
-    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[i], sizeof(uint32_t), 0);
-  }
-  endMarkerRegion(detector, cmdbuf);
-}
 void recCopyInputImageCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
 {
   /////////////////////////////////////////////////
@@ -944,7 +901,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
   uint32_t nb_scales = detector->mem->nb_scales_per_octave;
   GaussianBlurPushConsts blur_push_const;
 
-  // Handle the octave first scale
+  // Handle the octave first scale (blit from input image)
   if (oct_idx == 0)
   {
     // Copy input image (convert to pyr format and upscale if needed) then blur it to get (Octave 0,Scale 0)
@@ -963,7 +920,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
                                                     (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
     image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], 0, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
                                                     VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 3});
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}); // only scale 0
     vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
 
     // Horizontal blur the first scale
@@ -983,7 +940,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
                                                     (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
     image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                                                     VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 3});
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}); // only scale 0
     vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
 
     // Vertical blur the first scale
@@ -992,19 +949,6 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
     vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->blur_pipeline_layout, 0, 1, &detector->blur_v_desc_sets[oct_idx], 0, NULL);
     vkCmdDispatch(cmdbuf, ceilf((float)(detector->mem->octave_resolutions[oct_idx].width) / 8.f),
                   ceilf((float)(detector->mem->octave_resolutions[oct_idx].height) / 8.f), 1);
-  }
-  else
-  {
-    // If this is not the first octave, downscale the scale (Octave i-1,Scale nb_scale_per_octave) to get (Octave i,Scale 0)
-    VkImageBlit region = {
-        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = nb_scales, .layerCount = 1},
-        .srcOffsets = {{0, 0, 0},
-                       {(int32_t)detector->mem->octave_resolutions[oct_idx - 1].width, (int32_t)detector->mem->octave_resolutions[oct_idx - 1].height, 1}},
-        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
-        .dstOffsets = {{0, 0, 0},
-                       {(int32_t)detector->mem->octave_resolutions[oct_idx].width, (int32_t)detector->mem->octave_resolutions[oct_idx].height, 1}}};
-    vkCmdBlitImage(cmdbuf, detector->mem->octave_image_arr[oct_idx - 1], VK_IMAGE_LAYOUT_GENERAL, detector->mem->octave_image_arr[oct_idx],
-                   VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_NEAREST);
   }
 
   for (uint32_t scale_i = 1; scale_i < (nb_scales + 3); scale_i++)
@@ -1016,7 +960,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
                                                     (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
     image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], 0, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
                                                     VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 3});
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, scale_i - 1, 1}); // ony prev scale
     vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
 
     // Horizontal blur
@@ -1036,7 +980,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
                                                     (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
     image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                                                     VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 3});
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, scale_i, 1}); // ony curr scale
     vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
 
     // Vertical blur
@@ -1047,12 +991,46 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
     vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->blur_pipeline_layout, 0, 1, &detector->blur_v_desc_sets[oct_idx], 0, NULL);
     vkCmdDispatch(cmdbuf, ceilf((float)(detector->mem->octave_resolutions[oct_idx].width) / 8.f),
                   ceilf((float)(detector->mem->octave_resolutions[oct_idx].height) / 8.f), 1);
+
+    // Make sure the scale image writes are available for compute
+    image_barriers[0] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, scale_i, 1}); // ony curr scale
+    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, image_barriers);
   }
-  // Make sure octave image writes are available for compute after leaving this function
-  image_barriers[0] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                                                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                  (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 3});
-  vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, image_barriers);
+
+  if (oct_idx != (detector->mem->curr_nb_octaves - 1))
+  {
+    // If this is not the first octave, downscale the scale (Octave i-1,Scale nb_scale_per_octave) to get (Octave i,Scale 0)
+
+    image_barriers[0] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                                                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, nb_scales, 1});
+    image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx + 1], VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
+    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
+
+    VkImageBlit region = {
+        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = nb_scales, .layerCount = 1},
+        .srcOffsets = {{0, 0, 0},
+                       {(int32_t)detector->mem->octave_resolutions[oct_idx].width, (int32_t)detector->mem->octave_resolutions[oct_idx].height, 1}},
+        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+        .dstOffsets = {
+            {0, 0, 0},
+            {(int32_t)detector->mem->octave_resolutions[oct_idx + 1].width, (int32_t)detector->mem->octave_resolutions[oct_idx + 1].height, 1}}};
+    vkCmdBlitImage(cmdbuf, detector->mem->octave_image_arr[oct_idx], VK_IMAGE_LAYOUT_GENERAL, detector->mem->octave_image_arr[oct_idx + 1],
+                   VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_NEAREST);
+
+    // Make sure the transfer if done
+    image_barriers[0] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx], VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, nb_scales, 1});
+    image_barriers[1] = vkenv_genImageMemoryBarrier(detector->mem->octave_image_arr[oct_idx + 1], VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                    (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
+    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, image_barriers);
+  }
 
   endMarkerRegion(detector, cmdbuf);
 }
@@ -1071,7 +1049,7 @@ void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer c
   // Make sure the DoG images can be written into
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    image_barriers[oct_idx] = vkenv_genImageMemoryBarrier(
+    image_barriers[oct_idx - oct_begin] = vkenv_genImageMemoryBarrier(
         detector->mem->octave_DoG_image_arr[oct_idx], 0, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 2});
   }
@@ -1087,7 +1065,7 @@ void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer c
   // Make the DoG images data readable for compute ops after this function
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    image_barriers[oct_idx] =
+    image_barriers[oct_idx - oct_begin] =
         vkenv_genImageMemoryBarrier(detector->mem->octave_DoG_image_arr[oct_idx], VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                                     VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
                                     (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, nb_scales + 2});
@@ -1099,7 +1077,32 @@ void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer c
   free(image_barriers);
 }
 
-void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+void recClearBufferDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+{
+  beginMarkerRegion(detector, cmdbuf, "Clear buffer data");
+
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
+  {
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3,
+                    1);
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3,
+                    1);
+    // Only reset the indirect dispatch buffers and the SIFT buffer section headers (sift counter and max nb sift)
+    uint32_t sift_section_offset = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx];
+    uint32_t section_max_nb_feat = detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_max_nb_feat_arr[oct_idx];
+    vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset, sizeof(uint32_t), 0);
+    vkCmdFillBuffer(cmdbuf, detector->mem->sift_buffer_arr[detector->curr_buffer_idx], sift_section_offset + sizeof(uint32_t), sizeof(uint32_t),
+                    section_max_nb_feat);
+
+    // Set the group size x to 0 for the orientation and descriptor
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_orientation_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t), 0);
+    vkCmdFillBuffer(cmdbuf, detector->mem->indirect_descriptor_dispatch_buffer, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t), 0);
+  }
+
+  endMarkerRegion(detector, cmdbuf);
+}
+
+void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, uint32_t oct_begin, uint32_t oct_count)
 {
   /////////////////////////////////////////////////
   // Extract keypoints
@@ -1107,30 +1110,16 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
   VkBufferMemoryBarrier *buffer_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * oct_count * 2);
   VkBuffer sift_buffer = detector->mem->sift_buffer_arr[detector->curr_buffer_idx];
 
-  beginMarkerRegion(detector, cmdbuf, "ExtrackKeypoints");
-
-  if (detector->dev->async_transfer_available)
-  {
-    // If the async transfer is used for buffer transfers it is the main owner, we need to acquire the buffer ownership before using it
-    for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
-    {
-      buffer_barriers[oct_idx] =
-          vkenv_genBufferMemoryBarrier(sift_buffer, 0, 0, detector->dev->async_transfer_queues_family_idx, detector->dev->general_queues_family_idx,
-                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
-    }
-    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0,
-                         NULL);
-  }
+  beginMarkerRegion(detector, cmdbuf, "ExtractKeypoints");
 
   // Make sure previous writes are visible
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx * 2 + 0] =
+    buffer_barriers[(oct_idx - oct_begin) * 2 + 0] =
         vkenv_genBufferMemoryBarrier(sift_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
                                      detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
                                      detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
-    buffer_barriers[oct_idx * 2 + 1] =
+    buffer_barriers[(oct_idx - oct_begin) * 2 + 1] =
         vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED,
                                      VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
   }
@@ -1156,9 +1145,10 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
 
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(sift_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    buffer_barriers[oct_idx - oct_begin] =
+        vkenv_genBufferMemoryBarrier(sift_buffer, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
   }
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0,
                        NULL);
@@ -1167,10 +1157,10 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
   // Prepare the access masks for the transfer
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx * 2 + 0] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT,
-                                                                    VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                                    detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
-    buffer_barriers[oct_idx * 2 + 1] =
+    buffer_barriers[(oct_idx - oct_begin) * 2 + 0] = vkenv_genBufferMemoryBarrier(
+        detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+    buffer_barriers[(oct_idx - oct_begin) * 2 + 1] =
         vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED,
                                      VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
   }
@@ -1187,9 +1177,9 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
   // Prepare for orientation pipeline dispatch buffer for the indirect dispatch call (require specific mask)
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_TRANSFER_READ_BIT,
-                                                            VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+    buffer_barriers[oct_idx - oct_begin] = vkenv_genBufferMemoryBarrier(
+        detector->mem->indirect_orientation_dispatch_buffer, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
   }
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
 
@@ -1210,9 +1200,9 @@ void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cm
   // Prepare the descriptor pipeline indirect dispatch buffer for writes access and make sure previous writes are visible
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                                            VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+    buffer_barriers[oct_idx - oct_begin] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                                                        VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                                                                        detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
   }
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
 
@@ -1227,7 +1217,7 @@ void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cm
   // Make sure writes are visible for future compute shaders
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] =
+    buffer_barriers[oct_idx - oct_begin] =
         vkenv_genBufferMemoryBarrier(sift_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
                                      detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
                                      detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
@@ -1238,9 +1228,9 @@ void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cm
   // Prepare for descriptor pipeline dispatch buffer for the indirect dispatch call (require specific mask)
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT,
-                                                            VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-                                                            detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
+    buffer_barriers[oct_idx - oct_begin] = vkenv_genBufferMemoryBarrier(
+        detector->mem->indirect_descriptor_dispatch_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT, VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED, detector->mem->indirect_oridesc_offset_arr[oct_idx], sizeof(uint32_t) * 3);
   }
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
 
@@ -1279,10 +1269,10 @@ void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, 
   // Only copy the number of detected SIFT features to the staging buffer (accessible by host)
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    buffer_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(sift_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED,
-                                                            VK_QUEUE_FAMILY_IGNORED,
-                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-                                                            detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
+    buffer_barriers[oct_idx - oct_begin] = vkenv_genBufferMemoryBarrier(
+        sift_buffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+        detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+        detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
   }
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
 
@@ -1293,19 +1283,25 @@ void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, 
                                      .size = sizeof(uint32_t)};
     vkCmdCopyBuffer(cmdbuf, sift_buffer, detector->mem->sift_count_staging_buffer_arr[detector->curr_buffer_idx], 1, &sift_copy_region);
   }
+  endMarkerRegion(detector, cmdbuf);
+}
 
-  // Final operation with the buffer we can release the buffer ownership if needed
-  if (detector->dev->async_transfer_available)
+void recBufferOwnershipTransferCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count,
+                                    const uint32_t src_queue_family_idx, const uint32_t dst_queue_family_idx, VkPipelineStageFlags src_stage,
+                                    VkPipelineStageFlags dst_stage)
+{
+  beginMarkerRegion(detector, cmdbuf, "BufferOwnershipTransfer");
+
+  VkBufferMemoryBarrier *ownership_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * oct_count);
+  for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
-    for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
-    {
-      buffer_barriers[oct_idx] =
-          vkenv_genBufferMemoryBarrier(sift_buffer, 0, 0, detector->dev->general_queues_family_idx, detector->dev->async_transfer_queues_family_idx,
-                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-                                       detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
-    }
-    vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
+    ownership_barriers[oct_idx - oct_begin] =
+        vkenv_genBufferMemoryBarrier(detector->mem->sift_buffer_arr[detector->curr_buffer_idx], 0, 0, src_queue_family_idx, dst_queue_family_idx,
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
+                                     detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
   }
+  vkCmdPipelineBarrier(cmdbuf, src_stage, dst_stage, 0, 0, NULL, oct_count, ownership_barriers, 0, NULL);
+  free(ownership_barriers);
 
   endMarkerRegion(detector, cmdbuf);
 }
@@ -1314,11 +1310,11 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
 
-  // Write the empty command buffer used to signal that the detection work is done
+  // Write the empty end-of-detection command buffer used to signal that the detection work is done
   if (vkBeginCommandBuffer(detector->end_of_detection_command_buffer, &begin_info) != VK_SUCCESS ||
       vkEndCommandBuffer(detector->end_of_detection_command_buffer) != VK_SUCCESS)
   {
-    logError(LOG_TAG, "Failed to record the end-of-detection command buffer");
+    logError(LOG_TAG, "Failed to record end-of-detection command buffer");
     return false;
   }
 
@@ -1327,24 +1323,14 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
   /////////////////////////////////////////////////////
   if (detector->dev->async_transfer_available)
   {
-
-    VkBufferMemoryBarrier *ownership_barriers;
     if (vkBeginCommandBuffer(detector->release_buffer_ownership_command_buffer, &begin_info) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to begin the release-buffer-ownership command buffer recording");
       return false;
     }
-    ownership_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * detector->mem->curr_nb_octaves);
-    for (uint32_t oct_idx = 0; oct_idx < detector->mem->curr_nb_octaves; oct_idx++)
-    {
-      ownership_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(
-          detector->mem->sift_buffer_arr[detector->curr_buffer_idx], 0, 0, detector->dev->async_transfer_queues_family_idx,
-          detector->dev->general_queues_family_idx, detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-          detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
-    }
-    vkCmdPipelineBarrier(detector->release_buffer_ownership_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
-                         NULL, detector->mem->curr_nb_octaves, ownership_barriers, 0, NULL);
-    free(ownership_barriers);
+    recBufferOwnershipTransferCmds(detector, detector->release_buffer_ownership_command_buffer, 0, detector->mem->curr_nb_octaves,
+                                   detector->dev->async_transfer_queues_family_idx, detector->dev->general_queues_family_idx,
+                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     if (vkEndCommandBuffer(detector->release_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to record release-buffer-ownership command buffer");
@@ -1356,17 +1342,9 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
       logError(LOG_TAG, "Failed to begin the acquire-buffer-ownership command buffer recording");
       return false;
     }
-    ownership_barriers = (VkBufferMemoryBarrier *)malloc(sizeof(VkBufferMemoryBarrier) * detector->mem->curr_nb_octaves);
-    for (uint32_t oct_idx = 0; oct_idx < detector->mem->curr_nb_octaves; oct_idx++)
-    {
-      ownership_barriers[oct_idx] = vkenv_genBufferMemoryBarrier(
-          detector->mem->sift_buffer_arr[detector->curr_buffer_idx], 0, 0, detector->dev->general_queues_family_idx,
-          detector->dev->async_transfer_queues_family_idx, detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_offset_arr[oct_idx],
-          detector->mem->sift_buffers_info[detector->curr_buffer_idx].octave_section_size_arr[oct_idx]);
-    }
-    vkCmdPipelineBarrier(detector->acquire_buffer_ownership_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
-                         NULL, detector->mem->curr_nb_octaves, ownership_barriers, 0, NULL);
-    free(ownership_barriers);
+    recBufferOwnershipTransferCmds(detector, detector->acquire_buffer_ownership_command_buffer, 0, detector->mem->curr_nb_octaves,
+                                   detector->dev->general_queues_family_idx, detector->dev->async_transfer_queues_family_idx,
+                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     if (vkEndCommandBuffer(detector->acquire_buffer_ownership_command_buffer) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to record acquire-buffer-ownership command buffer");
@@ -1375,37 +1353,58 @@ bool recordCommandBuffers(vksift_SiftDetector detector)
   }
 
   /////////////////////////////////////////////////////
-  // Write the detection command buffer
+  // Write the detection command buffer (single queue version)
   /////////////////////////////////////////////////////
-  if (vkBeginCommandBuffer(detector->sync_command_buffer, &begin_info) != VK_SUCCESS)
+  if (vkBeginCommandBuffer(detector->detection_command_buffer, &begin_info) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to begin the command buffer recording");
     return false;
   }
 
-  // Clear data
-  recClearDataCmds(detector, detector->sync_command_buffer);
+  // We start using the SIFT buffer, is the async transfer is used we need to acquire the buffer ownership before using it
+  if (detector->dev->async_transfer_available)
+  {
+    recBufferOwnershipTransferCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves,
+                                   detector->dev->async_transfer_queues_family_idx, detector->dev->general_queues_family_idx,
+                                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  }
+
+  // Clear buffer data
+  recClearBufferDataCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
   // Copy input image
-  recCopyInputImageCmds(detector, detector->sync_command_buffer);
+  recCopyInputImageCmds(detector, detector->detection_command_buffer);
+
   // Scale space construction
   for (uint32_t i = 0; i < detector->mem->curr_nb_octaves; i++)
   {
     // Construct each octave
-    recScaleSpaceConstructionCmds(detector, detector->sync_command_buffer, i);
+    recScaleSpaceConstructionCmds(detector, detector->detection_command_buffer, i);
   }
+
   // Compute difference of Gaussian (on full range to synchronize every octave with a single barrier)
-  recDifferenceOfGaussianCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  recDifferenceOfGaussianCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
+
   // Extract extrema (keypoints) from DoG images
-  recExtractKeypointsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  recExtractKeypointsCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
   // For the main orientations of each keypoint (this creates new keypoints if there's more than one orientation)
-  recComputeOrientationsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  recComputeOrientationsCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
+
   // For each oriented keypoint compute its descriptor
-  recComputeDestriptorsCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  recComputeDestriptorsCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
+
   // Copy the number of found keypoints to the sift_count staging buffer
   // (so that when the CPU want to download the result it can download only the number of SIFT found with a custom command buffer)
-  recCopySIFTCountCmds(detector, detector->sync_command_buffer, 0, detector->mem->curr_nb_octaves);
+  recCopySIFTCountCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves);
 
-  if (vkEndCommandBuffer(detector->sync_command_buffer) != VK_SUCCESS)
+  // No more operation with the buffer we can release the buffer ownership if needed
+  if (detector->dev->async_transfer_available)
+  {
+    recBufferOwnershipTransferCmds(detector, detector->detection_command_buffer, 0, detector->mem->curr_nb_octaves,
+                                   detector->dev->general_queues_family_idx, detector->dev->async_transfer_queues_family_idx,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+  }
+
+  if (vkEndCommandBuffer(detector->detection_command_buffer) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to record command buffer");
     return false;
@@ -1431,10 +1430,6 @@ bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vk
 
   // Assign queues
   detector->general_queue = device->general_queues[0];
-  if (device->async_compute_available)
-  {
-    detector->async_compute_queue = device->async_compute_queues[0];
-  }
   if (device->async_transfer_available)
   {
     detector->async_ownership_transfer_queue = device->async_transfer_queues[1]; // queue 0 used by SiftMemory only
@@ -1474,18 +1469,21 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
     detector->curr_buffer_idx = target_buffer_idx;
     writeDescriptorSets(detector);
     recordCommandBuffers(detector);
-    logError(LOG_TAG, "rewrite stuff");
+    // logError(LOG_TAG, "rewrite stuff");
   }
 
   // Mark the buffer as busy/GPU locked
   vkResetFences(detector->dev->device, 1, &detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]);
   vkResetFences(detector->dev->device, 1, &detector->end_of_detection_fence);
 
-  VkPipelineStageFlags wait_dst_all_commands_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+  VkPipelineStageFlags wait_dst_transfer_bit_stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  VkPipelineStageFlags wait_dst_compute_shader_bit_stage_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = NULL};
+
   if (detector->dev->async_transfer_available)
   {
-    // Release SIFT buffer ownership from transfer queue
+    // Transfer SIFT buffer ownership for the detection
     submit_info.waitSemaphoreCount = 0;
     submit_info.pWaitSemaphores = NULL;
     submit_info.pWaitDstStageMask = NULL;
@@ -1500,13 +1498,13 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
     }
   }
 
-  // Main detection command buffer submit info
+  // Main detection
   if (detector->dev->async_transfer_available)
   {
-    // wait for buffer ownership to complete
+    // wait for buffer ownership transfer to complete
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &detector->buffer_ownership_released_by_transfer_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+    submit_info.pWaitDstStageMask = &wait_dst_compute_shader_bit_stage_mask;
   }
   else
   {
@@ -1515,7 +1513,7 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
     submit_info.pWaitDstStageMask = NULL;
   }
   submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &detector->sync_command_buffer;
+  submit_info.pCommandBuffers = &detector->detection_command_buffer;
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores = &detector->end_of_detection_semaphore;
   if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]) != VK_SUCCESS)
@@ -1526,10 +1524,10 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
 
   if (detector->dev->async_transfer_available)
   {
-    // Acquire SIFT buffer ownership on the transfer queue
+    // Give back SIFT buffer ownership to the main memory
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &detector->end_of_detection_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &detector->acquire_buffer_ownership_command_buffer;
     submit_info.signalSemaphoreCount = 1;
@@ -1546,13 +1544,13 @@ bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t ta
   {
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &detector->buffer_ownership_acquired_by_transfer_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
   }
   else
   {
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &detector->end_of_detection_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_all_commands_stage_mask;
+    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
   }
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &detector->end_of_detection_command_buffer;
@@ -1589,10 +1587,6 @@ void vksift_destroySiftDetector(vksift_SiftDetector *detector_ptr)
 
   // Destroy command pools
   VK_NULL_SAFE_DELETE(detector->general_command_pool, vkDestroyCommandPool(detector->dev->device, detector->general_command_pool, NULL));
-  if (detector->dev->async_compute_available)
-  {
-    VK_NULL_SAFE_DELETE(detector->async_compute_command_pool, vkDestroyCommandPool(detector->dev->device, detector->async_compute_command_pool, NULL));
-  }
   if (detector->dev->async_transfer_available)
   {
     VK_NULL_SAFE_DELETE(detector->async_transfer_command_pool, vkDestroyCommandPool(detector->dev->device, detector->async_transfer_command_pool, NULL));
