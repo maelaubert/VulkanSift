@@ -1,10 +1,12 @@
-#include "vulkansift/viz/vulkan_viewer.h"
-#include "vulkansift/vulkansift.h"
-
+extern "C"
+{
+#include <vulkansift/vulkansift.h>
+}
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include <vector>
 
-cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_Feature> kps, int width, int height)
+cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<vksift_Feature> kps, int width, int height)
 {
 
   cv::Mat output_mat(height, width, CV_8U);
@@ -21,7 +23,7 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_
 
   srand(time(NULL));
 
-  for (VulkanSIFT::SIFT_Feature kp : kps)
+  for (vksift_Feature kp : kps)
   {
     cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
 
@@ -40,8 +42,8 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_
   return output_mat_rgb;
 }
 
-cv::Mat getKeypointsMatches(uint8_t *in_img1, std::vector<VulkanSIFT::SIFT_Feature> kps1, int width1, int height1, uint8_t *in_img2,
-                            std::vector<VulkanSIFT::SIFT_Feature> kps2, int width2, int height2)
+cv::Mat getKeypointsMatches(uint8_t *in_img1, std::vector<vksift_Feature> kps1, int width1, int height1, uint8_t *in_img2,
+                            std::vector<vksift_Feature> kps2, int width2, int height2)
 {
   // Convert image 1
   cv::Mat output_mat1(height1, width1, CV_8U);
@@ -93,29 +95,20 @@ cv::Mat getKeypointsMatches(uint8_t *in_img1, std::vector<VulkanSIFT::SIFT_Featu
 int main()
 {
 
-  VulkanInstance instance;
-  if (!instance.init(640, 480, true, true))
+  vksift_setLogLevel(VKSIFT_LOG_INFO);
+
+  if (!vksift_loadVulkan())
   {
-    std::cout << "Impossible to initialize VulkanInstance" << std::endl;
+    std::cout << "Impossible to initialize the Vulkan API" << std::endl;
     return -1;
   }
 
-  VulkanViewer viewer;
-  if (!viewer.init(&instance, 640, 480))
+  vksift_Config config = vksift_Config_Default;
+  vksift_Instance vksift_instance = NULL;
+  if (!vksift_createInstance(&vksift_instance, &config))
   {
-    std::cout << "Impossible to initialize VulkanViewer" << std::endl;
-    return -1;
-  }
-  VulkanSIFT::SiftDetector detector;
-  if (!detector.init(&instance, 640, 480))
-  {
-    std::cout << "Impossible to initialize SiftDetector" << std::endl;
-    return -1;
-  }
-  VulkanSIFT::SiftMatcher matcher;
-  if (!matcher.init(&instance))
-  {
-    std::cout << "Impossible to initialize SiftMatcher" << std::endl;
+    std::cout << "Impossible to create the vksift_instance" << std::endl;
+    vksift_unloadVulkan();
     return -1;
   }
 
@@ -154,20 +147,32 @@ int main()
 
   //////////////////////
 
-  while (!viewer.shouldStop())
+  while (vksift_presentDebugFrame(vksift_instance))
   {
 
-    std::vector<VulkanSIFT::SIFT_Feature> img1_kp;
-    std::vector<VulkanSIFT::SIFT_Feature> img2_kp;
-    detector.compute(image1, img1_kp);
-    detector.compute(image2, img2_kp);
+    std::vector<vksift_Feature> img1_kp;
+    std::vector<vksift_Feature> img2_kp;
+    vksift_detectFeatures(vksift_instance, image1, width1, height1, 0u);
+    vksift_detectFeatures(vksift_instance, image2, width2, height2, 1u);
+    img1_kp.resize(vksift_getFeaturesNumber(vksift_instance, 0u));
+    img2_kp.resize(vksift_getFeaturesNumber(vksift_instance, 1u));
+    vksift_downloadFeatures(vksift_instance, img1_kp.data(), 0u);
+    vksift_downloadFeatures(vksift_instance, img2_kp.data(), 1u);
 
-    std::vector<VulkanSIFT::SIFT_Feature> matches_1;
-    std::vector<VulkanSIFT::SIFT_Feature> matches_2;
-    std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info12;
-    std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info21;
-    matcher.compute(img1_kp, img2_kp, matches_info12);
-    matcher.compute(img2_kp, img1_kp, matches_info21);
+    std::vector<vksift_Feature> matches_1;
+    std::vector<vksift_Feature> matches_2;
+    std::vector<vksift_Match_2NN> matches_info12;
+    std::vector<vksift_Match_2NN> matches_info21;
+    vksift_matchFeatures(vksift_instance, 0u, 1u);
+    matches_info12.resize(vksift_getMatchesNumber(vksift_instance));
+    std::cout << "matches_info12 size: " << matches_info12.size() << std::endl;
+    vksift_downloadMatches(vksift_instance, matches_info12.data());
+
+    vksift_matchFeatures(vksift_instance, 1u, 0u);
+    matches_info21.resize(vksift_getMatchesNumber(vksift_instance));
+    std::cout << "matches_info21 size: " << matches_info21.size() << std::endl;
+    vksift_downloadMatches(vksift_instance, matches_info21.data());
+
     for (int i = 0; i < matches_info12.size(); i++)
     {
       int idx_in_2 = matches_info12[i].idx_b1;
@@ -175,10 +180,10 @@ int main()
       if (matches_info21[idx_in_2].idx_b1 == i)
       {
         // Check Lowe's ratio in 1
-        if ((matches_info12[i].dist_ab1 / matches_info12[i].dist_ab2) < 0.75)
+        if ((matches_info12[i].dist_a_b1 / matches_info12[i].dist_a_b2) < 0.75)
         {
           // Check Lowe's ratio in 2
-          if ((matches_info21[idx_in_2].dist_ab1 / matches_info21[idx_in_2].dist_ab2) < 0.75)
+          if ((matches_info21[idx_in_2].dist_a_b1 / matches_info21[idx_in_2].dist_a_b2) < 0.75)
           {
             matches_1.push_back(img1_kp[matches_info12[i].idx_a]);
             matches_2.push_back(img2_kp[matches_info12[i].idx_b1]);
@@ -203,19 +208,14 @@ int main()
     cv::Mat matches_image = getKeypointsMatches(image1, matches_1, width1, height1, image2, matches_2, width2, height2);
     cv::imshow("VulkanSIFT matches", matches_image);
 
-    cv::waitKey(30);
-
-    float gpu_time;
-    viewer.execOnce(image1, &gpu_time);
+    cv::waitKey(1);
   }
 
   delete[] image1;
   delete[] image2;
 
-  matcher.terminate();
-  detector.terminate();
-  viewer.terminate();
-  instance.terminate();
+  vksift_destroyInstance(&vksift_instance);
+  vksift_unloadVulkan();
 
   return 0;
 }

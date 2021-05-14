@@ -1,10 +1,12 @@
-#include "vulkansift/viz/vulkan_viewer.h"
-#include "vulkansift/vulkansift.h"
-
+extern "C"
+{
+#include <vulkansift/vulkansift.h>
+}
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include <vector>
 
-cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_Feature> kps, int width, int height)
+cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<vksift_Feature> kps, int width, int height)
 {
 
   cv::Mat output_mat(height, width, CV_8U);
@@ -21,7 +23,7 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_
 
   srand(time(NULL));
 
-  for (VulkanSIFT::SIFT_Feature kp : kps)
+  for (vksift_Feature kp : kps)
   {
     cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
 
@@ -43,23 +45,20 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<VulkanSIFT::SIFT_
 int main()
 {
 
-  VulkanInstance instance;
-  if (!instance.init(640, 480, true, true))
+  vksift_setLogLevel(VKSIFT_LOG_INFO);
+
+  if (!vksift_loadVulkan())
   {
-    std::cout << "Impossible to initialize VulkanInstance" << std::endl;
+    std::cout << "Impossible to initialize the Vulkan API" << std::endl;
     return -1;
   }
 
-  VulkanViewer viewer;
-  if (!viewer.init(&instance, 640, 480))
+  vksift_Config config = vksift_Config_Default;
+  vksift_Instance vksift_instance = NULL;
+  if (!vksift_createInstance(&vksift_instance, &config))
   {
-    std::cout << "Impossible to initialize VulkanViewer" << std::endl;
-    return -1;
-  }
-  VulkanSIFT::SiftDetector detector;
-  if (!detector.init(&instance, 640, 480))
-  {
-    std::cout << "Impossible to initialize SiftDetector" << std::endl;
+    std::cout << "Impossible to create the vksift_instance" << std::endl;
+    vksift_unloadVulkan();
     return -1;
   }
 
@@ -81,10 +80,14 @@ int main()
     }
   }
 
-  while (!viewer.shouldStop())
+  while (vksift_presentDebugFrame(vksift_instance))
   {
-    std::vector<VulkanSIFT::SIFT_Feature> feat_vec;
-    detector.compute(image1, feat_vec);
+    std::vector<vksift_Feature> feat_vec;
+    vksift_detectFeatures(vksift_instance, image1, width1, height1, 0u);
+    uint32_t nb_sift = vksift_getFeaturesNumber(vksift_instance, 0u);
+    std::cout << "Feature found: " << nb_sift << std::endl;
+    feat_vec.resize(nb_sift);
+    vksift_downloadFeatures(vksift_instance, feat_vec.data(), 0u);
 
     cv::Mat draw_frame;
     img1_grey.convertTo(draw_frame, CV_8UC3);
@@ -97,17 +100,13 @@ int main()
     draw_frame = getOrientedKeypointsImage(image1, feat_vec, width1, height1);
 
     cv::imshow("VulkanSIFT keypoints", draw_frame);
-    cv::waitKey(30);
-
-    float gpu_time;
-    viewer.execOnce(image1, &gpu_time);
+    cv::waitKey(1);
   }
 
   delete[] image1;
 
-  detector.terminate();
-  viewer.terminate();
-  instance.terminate();
+  vksift_destroyInstance(&vksift_instance);
+  vksift_unloadVulkan();
 
   return 0;
 }

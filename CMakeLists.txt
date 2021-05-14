@@ -131,10 +131,12 @@ message("Examples will be built")
 find_package(OpenCV REQUIRED)
 # Add test executables
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp)
+target_compile_definitions(test_sift_detect PRIVATE VKSIFT_GPU_DEBUG=1)
 target_compile_options(test_sift_detect PRIVATE "-O3")
 target_link_libraries(test_sift_detect vulkansift ${OpenCV_LIBS})
 
 add_executable(test_sift_match src/examples/test_sift_match.cpp)
+target_compile_definitions(test_sift_match PRIVATE VKSIFT_GPU_DEBUG=1)
 target_compile_options(test_sift_match PRIVATE "-O3")
 target_link_libraries(test_sift_match vulkansift ${OpenCV_LIBS})
 
