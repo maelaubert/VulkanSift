@@ -26,14 +26,14 @@ typedef struct
   float edge_threshold;
 } ExtractKeypointsPushConsts;
 
-void getGPUDebugMarkerFuncs(vksift_SiftDetector detector)
+static void getGPUDebugMarkerFuncs(vksift_SiftDetector detector)
 {
   detector->vkCmdDebugMarkerBeginEXT = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(detector->dev->device, "vkCmdDebugMarkerBeginEXT");
   detector->vkCmdDebugMarkerEndEXT = (PFN_vkCmdDebugMarkerEndEXT)vkGetDeviceProcAddr(detector->dev->device, "vkCmdDebugMarkerEndEXT");
   detector->debug_marker_supported = (detector->vkCmdDebugMarkerBeginEXT != NULL) && (detector->vkCmdDebugMarkerEndEXT != NULL);
 }
 
-void beginMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf, const char *region_name)
+static void beginMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf, const char *region_name)
 {
   if (detector->debug_marker_supported)
   {
@@ -41,7 +41,7 @@ void beginMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf, co
     detector->vkCmdDebugMarkerBeginEXT(cmd_buf, &marker_info);
   }
 }
-void endMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf)
+static void endMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf)
 {
   if (detector->debug_marker_supported)
   {
@@ -49,7 +49,7 @@ void endMarkerRegion(vksift_SiftDetector detector, VkCommandBuffer cmd_buf)
   }
 }
 
-void setupGaussianKernels(vksift_SiftDetector detector)
+static void setupGaussianKernels(vksift_SiftDetector detector)
 {
   uint32_t nb_scales = detector->mem->nb_scales_per_octave;
   detector->gaussian_kernels = (float *)malloc(sizeof(float) * VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE * (nb_scales + 3));
@@ -139,7 +139,7 @@ void setupGaussianKernels(vksift_SiftDetector detector)
   }
 }
 
-bool setupCommandPools(vksift_SiftDetector detector)
+static bool setupCommandPools(vksift_SiftDetector detector)
 {
   VkCommandPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -165,7 +165,7 @@ bool setupCommandPools(vksift_SiftDetector detector)
   return true;
 }
 
-bool allocateCommandBuffers(vksift_SiftDetector detector)
+static bool allocateCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferAllocateInfo allocate_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
                                                .pNext = NULL,
@@ -203,7 +203,7 @@ bool allocateCommandBuffers(vksift_SiftDetector detector)
   return true;
 }
 
-bool setupImageSampler(vksift_SiftDetector detector)
+static bool setupImageSampler(vksift_SiftDetector detector)
 {
   VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                                       .pNext = NULL,
@@ -232,7 +232,7 @@ bool setupImageSampler(vksift_SiftDetector detector)
   return true;
 }
 
-VkDescriptorSetLayout *allocMultLayoutCopy(VkDescriptorSetLayout layout, int nb_copy)
+static VkDescriptorSetLayout *allocMultLayoutCopy(VkDescriptorSetLayout layout, int nb_copy)
 {
   VkDescriptorSetLayout *layout_arr = (VkDescriptorSetLayout *)malloc(sizeof(VkDescriptorSetLayout) * nb_copy);
   for (int i = 0; i < nb_copy; i++)
@@ -242,7 +242,7 @@ VkDescriptorSetLayout *allocMultLayoutCopy(VkDescriptorSetLayout layout, int nb_
   return layout_arr;
 }
 
-bool prepareDescriptorSets(vksift_SiftDetector detector)
+static bool prepareDescriptorSets(vksift_SiftDetector detector)
 {
   VkResult alloc_res;
   ///////////////////////////////////////////////////
@@ -532,7 +532,7 @@ bool prepareDescriptorSets(vksift_SiftDetector detector)
   return true;
 }
 
-bool setupComputePipelines(vksift_SiftDetector detector)
+static bool setupComputePipelines(vksift_SiftDetector detector)
 {
   //////////////////////////////////////
   // Setup GaussianBlur pipeline
@@ -636,7 +636,7 @@ bool setupComputePipelines(vksift_SiftDetector detector)
   return true;
 }
 
-bool setupSyncObjects(vksift_SiftDetector detector)
+static bool setupSyncObjects(vksift_SiftDetector detector)
 {
   VkSemaphoreCreateInfo semaphore_create_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = NULL, .flags = 0};
   if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->end_of_detection_semaphore) != VK_SUCCESS)
@@ -664,7 +664,7 @@ bool setupSyncObjects(vksift_SiftDetector detector)
   return true;
 }
 
-bool writeDescriptorSets(vksift_SiftDetector detector)
+static bool writeDescriptorSets(vksift_SiftDetector detector)
 {
   /////////////////////////////////////////////////////
   // Write sets for gaussian blur pipeline
@@ -856,7 +856,7 @@ bool writeDescriptorSets(vksift_SiftDetector detector)
   return true;
 }
 
-void recCopyInputImageCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
+static void recCopyInputImageCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
 {
   /////////////////////////////////////////////////
   // Copy input image
@@ -889,7 +889,7 @@ void recCopyInputImageCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf)
   endMarkerRegion(detector, cmdbuf);
 }
 
-void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_idx)
+static void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_idx)
 {
   /////////////////////////////////////////////////
   // Scale space construction
@@ -1035,7 +1035,7 @@ void recScaleSpaceConstructionCmds(vksift_SiftDetector detector, VkCommandBuffer
   endMarkerRegion(detector, cmdbuf);
 }
 
-void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+static void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
 {
   VkImageMemoryBarrier *image_barriers = (VkImageMemoryBarrier *)malloc(sizeof(VkImageMemoryBarrier) * oct_count);
   uint32_t nb_scales = detector->mem->nb_scales_per_octave;
@@ -1077,7 +1077,7 @@ void recDifferenceOfGaussianCmds(vksift_SiftDetector detector, VkCommandBuffer c
   free(image_barriers);
 }
 
-void recClearBufferDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+static void recClearBufferDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
 {
   beginMarkerRegion(detector, cmdbuf, "Clear buffer data");
 
@@ -1102,7 +1102,7 @@ void recClearBufferDataCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf
   endMarkerRegion(detector, cmdbuf);
 }
 
-void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, uint32_t oct_begin, uint32_t oct_count)
+static void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, uint32_t oct_begin, uint32_t oct_count)
 {
   /////////////////////////////////////////////////
   // Extract keypoints
@@ -1188,7 +1188,7 @@ void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbu
   free(buffer_barriers);
 }
 
-void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+static void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
 {
   /////////////////////////////////////////////////
   // Compute orientation
@@ -1239,7 +1239,7 @@ void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBuffer cm
   free(buffer_barriers);
 }
 
-void recComputeDestriptorsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+static void recComputeDestriptorsCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
 {
   /////////////////////////////////////////////////
   // Compute descriptor
@@ -1256,7 +1256,7 @@ void recComputeDestriptorsCmds(vksift_SiftDetector detector, VkCommandBuffer cmd
   endMarkerRegion(detector, cmdbuf);
 }
 
-void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
+static void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count)
 {
   /////////////////////////////////////////////////
   // Copy SIFT count to staging
@@ -1286,9 +1286,9 @@ void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, 
   endMarkerRegion(detector, cmdbuf);
 }
 
-void recBufferOwnershipTransferCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count,
-                                    const uint32_t src_queue_family_idx, const uint32_t dst_queue_family_idx, VkPipelineStageFlags src_stage,
-                                    VkPipelineStageFlags dst_stage)
+static void recBufferOwnershipTransferCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count,
+                                           const uint32_t src_queue_family_idx, const uint32_t dst_queue_family_idx, VkPipelineStageFlags src_stage,
+                                           VkPipelineStageFlags dst_stage)
 {
   beginMarkerRegion(detector, cmdbuf, "BufferOwnershipTransfer");
 
@@ -1306,7 +1306,7 @@ void recBufferOwnershipTransferCmds(vksift_SiftDetector detector, VkCommandBuffe
   endMarkerRegion(detector, cmdbuf);
 }
 
-bool recordCommandBuffers(vksift_SiftDetector detector)
+static bool recordCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
 
@@ -1461,7 +1461,7 @@ bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vk
   }
 }
 
-bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t target_buffer_idx, const bool memory_layout_updated)
+bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t target_buffer_idx, const bool memory_layout_updated)
 {
   // We need to setup the descriptor sets and command buffers if the input resolution or target buffer changed
   if (memory_layout_updated || detector->curr_buffer_idx != target_buffer_idx)

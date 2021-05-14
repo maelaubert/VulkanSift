@@ -89,6 +89,6 @@ typedef struct vksift_SiftDetector_T
 bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vksift_SiftDetector *detector_ptr, const vksift_Config *config);
 void vksift_destroySiftDetector(vksift_SiftDetector *detector_ptr);
 
-bool vksift_dispatchSiftDetector(vksift_SiftDetector detector, const uint32_t target_buffer_idx, const bool memory_layout_updated);
+bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t target_buffer_idx, const bool memory_layout_updated);
 
 #endif // VKSIFT_SIFTDETECTOR

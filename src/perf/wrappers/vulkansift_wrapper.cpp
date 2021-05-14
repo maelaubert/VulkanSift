@@ -7,6 +7,8 @@ bool VulkanSiftDetector::init()
     return false;
   }
   vksift_Config config = vksift_Config_Default;
+  config.use_hardware_interpolated_blur = true;
+  config.input_image_max_size = 1920 * 2 * 1080 * 2;
   sift_instance = NULL;
   if (!vksift_createInstance(&sift_instance, &config))
   {
@@ -50,14 +52,13 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
 
   // Compute SIFT features on both images
   vksift_detectFeatures(sift_instance, img1_buf, image1.cols, image1.rows, 0);
-  uint32_t nb_sift_found_1 = vksift_getFeaturesNumber(sift_instance, 0);
-  img1_kps.resize(nb_sift_found_1);
+  vksift_detectFeatures(sift_instance, img2_buf, image2.cols, image2.rows, 1);
+
+  img1_kps.resize(vksift_getFeaturesNumber(sift_instance, 0));
   vksift_downloadFeatures(sift_instance, img1_kps.data(), 0);
 
-  vksift_detectFeatures(sift_instance, img2_buf, image2.cols, image2.rows, 0);
-  uint32_t nb_sift_found_2 = vksift_getFeaturesNumber(sift_instance, 0);
-  img2_kps.resize(nb_sift_found_2);
-  vksift_downloadFeatures(sift_instance, img2_kps.data(), 0);
+  img2_kps.resize(vksift_getFeaturesNumber(sift_instance, 1));
+  vksift_downloadFeatures(sift_instance, img2_kps.data(), 1);
 
   delete[] img1_buf;
   delete[] img2_buf;
@@ -76,8 +77,8 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
   std::cout << kps_img1.size() << std::endl;
   std::cout << kps_img2.size() << std::endl;
 
-  // Match using OpenCV since the matcher is not yet implemented
-  cv::Mat descs1, descs2;
+  // Match using OpenCV matcher
+  /*cv::Mat descs1, descs2;
   // Fill desc with vksift results
   descs1.create((int)kps_img1.size(), 128, CV_8U);
   for (int i = 0; i < kps_img1.size(); i++)
@@ -122,12 +123,17 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
         }
       }
     }
-  }
+  }*/
 
-  /*// Find feature matches
-  std::vector<VulkanSIFT::SIFT_2NN_Info> matches_info12, matches_info21;
-  m_matcher.compute(img1_kps, img2_kps, matches_info12);
-  m_matcher.compute(img2_kps, img1_kps, matches_info21);
+  // Find feature matches
+  std::vector<vksift_Match_2NN> matches_info12, matches_info21;
+  vksift_matchFeatures(sift_instance, 0u, 1u);
+  matches_info12.resize(vksift_getMatchesNumber(sift_instance));
+  vksift_downloadMatches(sift_instance, matches_info12.data());
+
+  vksift_matchFeatures(sift_instance, 1u, 0u);
+  matches_info21.resize(vksift_getMatchesNumber(sift_instance));
+  vksift_downloadMatches(sift_instance, matches_info21.data());
 
   // Fill Match vector
   matches_img1.clear();
@@ -139,17 +145,17 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
     if (matches_info21[idx_in_2].idx_b1 == i)
     {
       // Check Lowe's ratio in 1
-      if ((matches_info12[i].dist_ab1 / matches_info12[i].dist_ab2) < LOWES_RATIO)
+      if ((matches_info12[i].dist_a_b1 / matches_info12[i].dist_a_b2) < LOWES_RATIO)
       {
         // Check Lowe's ratio in 2
-        if ((matches_info21[idx_in_2].dist_ab1 / matches_info21[idx_in_2].dist_ab2) < LOWES_RATIO)
+        if ((matches_info21[idx_in_2].dist_a_b1 / matches_info21[idx_in_2].dist_a_b2) < LOWES_RATIO)
         {
           matches_img1.push_back(kps_img1[matches_info12[i].idx_a]);
           matches_img2.push_back(kps_img2[matches_info12[i].idx_b1]);
         }
       }
     }
-  }*/
+  }
 }
 
 float VulkanSiftDetector::measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter)

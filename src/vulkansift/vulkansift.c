@@ -11,6 +11,7 @@
 
 // vksift
 #include "vulkansift/sift_detector.h"
+#include "vulkansift/sift_matcher.h"
 #include "vulkansift/sift_memory.h"
 
 #include <assert.h>
@@ -93,6 +94,7 @@ typedef struct vksift_Instance_T
   vkenv_Device vulkan_device;
   vksift_SiftMemory sift_memory;
   vksift_SiftDetector sift_detector;
+  vksift_SiftMatcher sift_matcher;
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   vkenv_DebugPresenter debug_presenter;
@@ -247,6 +249,13 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
     return false;
   }
 
+  if (!vksift_createSiftMatcher(instance->vulkan_device, instance->sift_memory, &instance->sift_matcher, config))
+  {
+    logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the SIFT matcher");
+    vksift_destroyInstance(instance_ptr);
+    return false;
+  }
+
   // Setup Matcher (descriptors, pipelines, cmdbufs)
   return true;
 }
@@ -262,6 +271,9 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
     // Wait for anything running on the GPU to finish
     vkDeviceWaitIdle(instance->vulkan_device->device);
   }
+
+  // Destroy SiftMatcher
+  VK_NULL_SAFE_DELETE(instance->sift_matcher, vksift_destroySiftMatcher(&instance->sift_matcher));
 
   // Destroy SiftDetector
   VK_NULL_SAFE_DELETE(instance->sift_detector, vksift_destroySiftDetector(&instance->sift_detector));
@@ -300,14 +312,14 @@ void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, 
 
   // Prepare memory for input resolution and update target buffer structure
   bool memory_layout_updated = false;
-  if (!vksift_prepareSiftMemoryForInput(instance->sift_memory, image_data, image_width, image_height, gpu_buffer_id, &memory_layout_updated))
+  if (!vksift_prepareSiftMemoryForDetection(instance->sift_memory, image_data, image_width, image_height, gpu_buffer_id, &memory_layout_updated))
   {
-    logError(LOG_TAG, "Failed to prepare the SiftMemory instance for the input image and target buffer");
+    logError(LOG_TAG, "vksift_detectFeatures() error: Failed to prepare the SiftMemory instance for the input image and target buffer");
     abort();
   }
 
   // Run the sift detector algorithm
-  vksift_dispatchSiftDetector(instance->sift_detector, gpu_buffer_id, memory_layout_updated);
+  vksift_dispatchSiftDetection(instance->sift_detector, gpu_buffer_id, memory_layout_updated);
 }
 
 uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)
@@ -376,10 +388,38 @@ void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, ui
     abort();
   }
 
-  // TODO
+  // If a GPU task is currently using the buffers or the matching pipeline, wait for them to be available
+  VkFence fences[3] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id_A], instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id_B],
+                       instance->sift_matcher->end_of_matching_fence};
+  vkWaitForFences(instance->vulkan_device->device, 3, fences, VK_TRUE, UINT64_MAX);
+
+  if (vksift_prepareSiftMemoryForMatching(instance->sift_memory, gpu_buffer_id_A, gpu_buffer_id_B))
+  {
+    vksift_dispatchSiftMatching(instance->sift_matcher, gpu_buffer_id_A, gpu_buffer_id_B);
+  }
+  else
+  {
+    logError(LOG_TAG, "vksift_matchFeatures() error: Failed to prepare the SIFT buffers for the matching pipeline.");
+    abort();
+  }
+}
+
+uint32_t vksift_getMatchesNumber(vksift_Instance instance)
+{
+  uint32_t nb_matches = 0u;
+  vksift_Memory_getBufferMatchesCount(instance->sift_memory, &nb_matches);
+  return nb_matches;
 }
 
 void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
 {
-  // TODO
+  // If a GPU matching pipeline is currently using the matches buffer, wait for the pipeline to end
+  VkFence fences[1] = {instance->sift_matcher->end_of_matching_fence};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  if (!vksift_Memory_copyBufferMatchesFromGPU(instance->sift_memory, matches))
+  {
+    logError(LOG_TAG, "vksift_downloadMatches() error when downloading SIFT matches from GPU memory.");
+    abort();
+  }
 }

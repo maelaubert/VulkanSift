@@ -59,6 +59,7 @@ int main()
   }
 
   vksift_Config config = vksift_Config_Default;
+  // config.pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT16;
   config.use_hardware_interpolated_blur = true;
   vksift_Instance vksift_instance = NULL;
   if (!vksift_createInstance(&vksift_instance, &config))
@@ -102,6 +103,10 @@ int main()
     std::cout << "Time to download2: " << std::chrono::duration_cast<std::chrono::microseconds>(download2_ts - start_ts).count() / 1000.f << std::endl;
     std::cout << "Time to upload1: " << std::chrono::duration_cast<std::chrono::microseconds>(upload1_ts - start_ts).count() / 1000.f << std::endl;
     std::cout << "Time to upload2: " << std::chrono::duration_cast<std::chrono::microseconds>(upload2_ts - start_ts).count() / 1000.f << std::endl;
+
+    vksift_matchFeatures(vksift_instance, 0u, 1u);
+    uint32_t match_number = vksift_getMatchesNumber(vksift_instance);
+    std::cout << "Matches found: " << match_number << std::endl;
 
     // buffer_idx = (buffer_idx + 1) % config.sift_buffer_count;
   }

@@ -25,6 +25,7 @@ void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, 
 
 // Match SIFT features from two buffers
 void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B);
+uint32_t vksift_getMatchesNumber(vksift_Instance instance);
 void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
 
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
@@ -37,8 +38,8 @@ bool vksift_presentDebugFrame(vksift_Instance instance);
 // Scale-space access functions (for debug and visualization)
 uint8_t vksift_getScaleSpaceNbOctaves();
 void vksift_getScaleSpaceOctaveResolution(const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
-void vksift_downloadScaleSpaceImage(const uint8_t octave, const uint8_t scale, const double *blurred_image);
-void vksift_downloadDoGImage(const uint8_t octave, const uint8_t scale, const double *blurred_image);
+void vksift_downloadScaleSpaceImage(const uint8_t octave, const uint8_t scale, const float *blurred_image);
+void vksift_downloadDoGImage(const uint8_t octave, const uint8_t scale, const float *blurred_image);
 ///////////////////////////////////////////////////////////////////////
 
 #endif // VULKAN_SIFT_H

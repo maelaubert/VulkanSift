@@ -8,6 +8,8 @@ typedef struct
 {
   bool is_busy;
   bool is_packed;
+  uint32_t nb_stored_feats; // only available if is_packed is true
+
   uint32_t curr_input_width;
   uint32_t curr_input_height;
   // Number of SIFT feature per sections
@@ -86,6 +88,7 @@ typedef struct vksift_SiftMemory_T
   vksift_OctaveResolution *octave_resolutions;
 
   // Matching buffers
+  uint32_t curr_nb_matches; // simply updated using the buffer A number of features
   VkBuffer match_output_buffer;
   VkDeviceMemory match_output_buffer_memory;
 
@@ -120,12 +123,14 @@ typedef struct vksift_SiftMemory_T
 // Map staging in and staging out buffers (input image, output image, input buffer, output buffer)
 bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr, const vksift_Config *config);
 
-// Need to recompute the octave resolution (and number) and recreate+bind the images
-// Since the images will be new GPU objects, the related descriptors must be updated
-// If nb octave updated must update SIFT buffers info (sections offset and sizes)
-// Need to setup image layout
-bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
-                                      const uint32_t target_buffer_idx, bool *memory_layout_updated);
+// Recompute the octave resolution (and number) and recreate+bind the images
+// Since the images will be new GPU objects, the related descriptors in the computing pipelines must be updated
+bool vksift_prepareSiftMemoryForDetection(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
+                                          const uint32_t target_buffer_idx, bool *memory_layout_updated);
+
+// Update the buffer structure to a packed format with a 2-uint32 header (containing the number of features) and all the features aligned
+// after this header (requirement for the matching pipeline)
+bool vksift_prepareSiftMemoryForMatching(vksift_SiftMemory memory, const uint32_t target_buffer_A_idx, const uint32_t target_buffer_B_idx);
 
 // Read from staging buffer memory to retrieve the number of features stored in a SIFT buffer (GPU not involved in this function)
 bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_t target_buffer_idx, uint32_t *out_feat_count);
@@ -136,6 +141,12 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
 // Run a transfer command to transfer user SIFT features to the SIFT buffer on the GPU (run on the asynchronous transfer queue if available)
 bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
                                            const uint32_t in_feat_count);
+
+// Read from staging buffer memory to retrieve the number of features matches stored in a matches buffer (GPU not involved in this function)
+bool vksift_Memory_getBufferMatchesCount(vksift_SiftMemory memory, uint32_t *out_matches_count);
+
+// Run a transfer command to retrieve the SIFT matches from the GPU (GPU not involved in this function)
+bool vksift_Memory_copyBufferMatchesFromGPU(vksift_SiftMemory memory, vksift_Match_2NN *out_matches_ptr);
 
 // Destory every memory object and free stuffs
 void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr);

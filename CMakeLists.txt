@@ -30,6 +30,7 @@ set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.c
     src/vulkansift/sift_memory.c
     src/vulkansift/sift_detector.c
+    src/vulkansift/sift_matcher.c
     # relevant vkenv files
     src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
@@ -53,7 +54,7 @@ set(VULKANSIFT_LIB_SHADERS
     src/vulkansift/shaders/ComputeOrientation.comp
     src/vulkansift/shaders/ComputeDescriptors.comp
     # SIFT matching algirhtm shaders
-    #src/vulkansift/sift/shaders/Get2NearestNeighbors.comp
+    src/vulkansift/shaders/Get2NearestNeighbors.comp
 )
 
 #####################################################################################

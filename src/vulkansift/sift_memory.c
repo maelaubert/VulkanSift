@@ -799,8 +799,8 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   *memory_ptr = NULL;
 }
 
-bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
-                                      const uint32_t target_buffer_idx, bool *memory_layout_updated)
+bool vksift_prepareSiftMemoryForDetection(vksift_SiftMemory memory, const uint8_t *image_data, const uint32_t input_width, const uint32_t input_height,
+                                          const uint32_t target_buffer_idx, bool *memory_layout_updated)
 {
   if (memory->curr_input_image_width != input_width || memory->curr_input_image_height != input_height)
   {
@@ -859,11 +859,125 @@ bool vksift_prepareSiftMemoryForInput(vksift_SiftMemory memory, const uint8_t *i
     return false;
   }
 
+  // Mark the buffer as not packed
+  memory->sift_buffers_info[target_buffer_idx].is_packed = false;
+
+  return true;
+}
+
+static bool pack_BufferMemory(vksift_SiftMemory memory, const uint32_t target_buffer_idx)
+{
+  if (memory->sift_buffers_info[target_buffer_idx].is_packed)
+  {
+    // Nothing to do in this case, buffer is already in packed format
+    return true;
+  }
+
+  // Invalidate staging since we will read the number of features per octave
+  VkMappedMemoryRange sift_count_buffer_range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                                                 .pNext = NULL,
+                                                 .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
+                                                 .offset = 0,
+                                                 .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &sift_count_buffer_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT count buffer memory");
+    return false;
+  }
+
+  VkCommandBufferBeginInfo cmdbuf_begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = NULL, .flags = 0, .pInheritanceInfo = NULL};
+  bool res = true;
+  res = res && (vkBeginCommandBuffer(memory->transfer_command_buffer, &cmdbuf_begin_info) == VK_SUCCESS);
+
+  VkDeviceSize new_offset = sizeof(uint32_t) * 2; // reserve the space to add the header (number of features and max nb features)
+  uint32_t feature_sum = 0;
+  for (uint32_t oct_i = 0; oct_i < memory->max_nb_octaves; oct_i++)
+  {
+    uint32_t max_nb_feat = memory->sift_buffers_info[target_buffer_idx].octave_section_max_nb_feat_arr[oct_i];
+    uint32_t oct_nb_feat = ((uint32_t *)memory->sift_count_staging_buffer_ptr_arr[target_buffer_idx])[oct_i];
+    if (oct_nb_feat > max_nb_feat)
+    {
+      oct_nb_feat = max_nb_feat;
+    }
+    feature_sum += oct_nb_feat;
+    // sift_copy_region srcOffset doesn't copy the section header
+    if (oct_i > 0) // the first octave features are already at the right place (and also "inplace" copy cannot be done)
+    {
+      VkBufferCopy sift_copy_region = {.srcOffset = memory->sift_buffers_info[target_buffer_idx].octave_section_offset_arr[oct_i] + sizeof(uint32_t) * 2,
+                                       .dstOffset = new_offset,
+                                       .size = sizeof(vksift_Feature) * oct_nb_feat};
+      vkCmdCopyBuffer(memory->transfer_command_buffer, memory->sift_buffer_arr[target_buffer_idx], memory->sift_buffer_arr[target_buffer_idx], 1,
+                      &sift_copy_region);
+    }
+    new_offset += sizeof(vksift_Feature) * oct_nb_feat;
+  }
+  // Add the number of features at the beginning of the buffer (header)
+  vkCmdFillBuffer(memory->transfer_command_buffer, memory->sift_buffer_arr[target_buffer_idx], 0, sizeof(uint32_t), feature_sum);
+  vkCmdFillBuffer(memory->transfer_command_buffer, memory->sift_buffer_arr[target_buffer_idx], sizeof(uint32_t), sizeof(uint32_t),
+                  memory->max_nb_sift_per_buffer);
+
+  res = res && (vkEndCommandBuffer(memory->transfer_command_buffer) == VK_SUCCESS);
+  if (!res)
+  {
+    logError(LOG_TAG, "Failed to record the GPU->GPU (packing) SIFT buffer transfer command buffer");
+    return false;
+  }
+
+  // Reset buffer fence
+  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
+
+  VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                              .pNext = NULL,
+                              .waitSemaphoreCount = 0,
+                              .pWaitSemaphores = NULL,
+                              .pWaitDstStageMask = NULL,
+                              .commandBufferCount = 1,
+                              .pCommandBuffers = &memory->transfer_command_buffer,
+                              .signalSemaphoreCount = 0,
+                              .pSignalSemaphores = NULL};
+  VkQueue target_queue = memory->general_queue;
+  if (memory->device->async_transfer_available)
+  {
+    target_queue = memory->async_transfer_queue;
+  }
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit the GPU->GPU (packing) SIFT buffer transfer command buffer");
+    return false;
+  }
+  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Error when waiting for GPU->GPU (packing) SIFT buffer transfer to complete");
+    return false;
+  }
+
+  // Mark the buffer as packed and store the number of feature it contains
+  memory->sift_buffers_info[target_buffer_idx].is_packed = true;
+  memory->sift_buffers_info[target_buffer_idx].nb_stored_feats = feature_sum;
+
+  return true;
+}
+
+bool vksift_prepareSiftMemoryForMatching(vksift_SiftMemory memory, const uint32_t target_buffer_A_idx, const uint32_t target_buffer_B_idx)
+{
+  bool res = true;
+  res = res && pack_BufferMemory(memory, target_buffer_A_idx);
+  res = res && pack_BufferMemory(memory, target_buffer_B_idx);
+
+  // Mark the current number of matches to the number of features in the SIFT bufer
+  memory->curr_nb_matches = memory->sift_buffers_info[target_buffer_A_idx].nb_stored_feats;
   return true;
 }
 
 bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_t target_buffer_idx, uint32_t *out_feat_count)
 {
+  if (memory->sift_buffers_info[target_buffer_idx].is_packed)
+  {
+    // number of features already known (either the user uploaded the features or a matching pipeline using the features was ran)
+    *out_feat_count = memory->sift_buffers_info[target_buffer_idx].nb_stored_feats;
+    return true;
+  }
+
   VkMappedMemoryRange range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
                                .pNext = NULL,
                                .memory = memory->sift_count_staging_buffer_memory_arr[target_buffer_idx],
@@ -1006,7 +1120,8 @@ bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint3
 
   // Copy to staging with the packed format
   memcpy(memory->sift_staging_buffer_ptr, &in_feat_count, sizeof(uint32_t));
-  memcpy(((uint32_t *)memory->sift_staging_buffer_ptr) + 1, in_features_ptr, sizeof(vksift_Feature) * in_feat_count);
+  memcpy(((uint32_t *)memory->sift_staging_buffer_ptr) + 1, &memory->max_nb_sift_per_buffer, sizeof(uint32_t));
+  memcpy(((uint32_t *)memory->sift_staging_buffer_ptr) + 2, in_features_ptr, sizeof(vksift_Feature) * in_feat_count);
 
   // Flush the CPU writes to make them visible for the next GPU commands
   if (vkFlushMappedMemoryRanges(memory->device->device, 1, &sift_buffer_range) != VK_SUCCESS)
@@ -1057,6 +1172,39 @@ bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint3
     logError(LOG_TAG, "Error when waiting for CPU->GPU SIFT buffer transfer to complete");
     return false;
   }
+
+  // Mark the buffer as packed
+  memory->sift_buffers_info[target_buffer_idx].is_packed = true;
+  memory->sift_buffers_info[target_buffer_idx].nb_stored_feats = in_feat_count;
+
+  return true;
+}
+
+bool vksift_Memory_getBufferMatchesCount(vksift_SiftMemory memory, uint32_t *out_matches_count)
+{
+  // Stored during the last call to vksift_prepareSiftMemoryForMatching, the number of matches will always excatly be the number of
+  // features of the buffer A used during the matching
+  *out_matches_count = memory->curr_nb_matches;
+  return true;
+}
+
+bool vksift_Memory_copyBufferMatchesFromGPU(vksift_SiftMemory memory, vksift_Match_2NN *out_matches_ptr)
+{
+  // Matches are already copied to the staging buffer during the pipeline, we can simply memcopy them
+  // Invalidate the match staging buffer to be sure the transfer results are visible on the CPU
+  VkMappedMemoryRange matches_buffer_range = {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                                              .pNext = NULL,
+                                              .memory = memory->match_output_staging_buffer_memory,
+                                              .offset = 0,
+                                              .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &matches_buffer_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the SIFT matches staging buffer memory");
+    return false;
+  }
+
+  // At this point the features are stored in the sift staging buffer, we can just copy them to user memory
+  memcpy(out_matches_ptr, memory->match_output_staging_buffer_ptr, sizeof(vksift_Match_2NN) * memory->curr_nb_matches);
 
   return true;
 }

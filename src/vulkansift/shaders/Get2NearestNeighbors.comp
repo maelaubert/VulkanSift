@@ -28,10 +28,12 @@ struct SIFT_2NN_Info
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer SIFT_buffer_A {
     uint nb_elem;
+    uint max_nb_elem;
     SIFT_Feat data[];
 } sift_a_buf;
 layout(std430, binding = 1) buffer SIFT_buffer_B {
     uint nb_elem;
+    uint max_nb_elem;
     SIFT_Feat data[];
 } sift_b_buf;
 layout(std430, binding = 2) buffer dist_buffer {
@@ -52,48 +54,51 @@ float compute_dist(SIFT_Feat feat_a, SIFT_Feat feat_b) {
 
 void main() {
     int a_idx = int(gl_GlobalInvocationID.x);
-    SIFT_Feat feat_a = sift_a_buf.data[a_idx];
-    
-    float first_best_distance;
-    uint first_best_idx;
-    float second_best_distance;
-    uint second_best_idx;
+    if(a_idx<sift_a_buf.nb_elem) {
 
-    float dist_0 = compute_dist(feat_a, sift_b_buf.data[0]);
-    float dist_1 = compute_dist(feat_a, sift_b_buf.data[1]);
+        SIFT_Feat feat_a = sift_a_buf.data[a_idx];
+        
+        float first_best_distance;
+        uint first_best_idx;
+        float second_best_distance;
+        uint second_best_idx;
 
-    if(dist_0<dist_1) {
-        first_best_distance = dist_0;
-        first_best_idx = 0;
-        second_best_distance = dist_1;
-        second_best_idx = 1;
-    }
-    else {
-        first_best_distance = dist_1;
-        first_best_idx = 1;
-        second_best_distance = dist_0;
-        second_best_idx = 0;
-    }
+        float dist_0 = compute_dist(feat_a, sift_b_buf.data[0]);
+        float dist_1 = compute_dist(feat_a, sift_b_buf.data[1]);
 
-    for(int b_idx = 2; b_idx<sift_b_buf.nb_elem;b_idx++) {
-        SIFT_Feat feat_b = sift_b_buf.data[b_idx];
-
-        float dist = compute_dist(feat_a, feat_b);
-        if(dist < first_best_distance) {
-            second_best_distance = first_best_distance;
-            second_best_idx = first_best_idx;
-            first_best_distance = dist;
-            first_best_idx = b_idx;
+        if(dist_0<dist_1) {
+            first_best_distance = dist_0;
+            first_best_idx = 0;
+            second_best_distance = dist_1;
+            second_best_idx = 1;
         }
-        else if(dist < second_best_distance) {
-            second_best_distance = dist;
-            second_best_idx = b_idx;
+        else {
+            first_best_distance = dist_1;
+            first_best_idx = 1;
+            second_best_distance = dist_0;
+            second_best_idx = 0;
         }
-    }
 
-    dist_buf.data[a_idx].idx_a = a_idx;
-    dist_buf.data[a_idx].idx_b1 = first_best_idx;
-    dist_buf.data[a_idx].idx_b2 = second_best_idx;
-    dist_buf.data[a_idx].dist_ab1 = first_best_distance;
-    dist_buf.data[a_idx].dist_ab2 = second_best_distance;
+        for(int b_idx = 2; b_idx<sift_b_buf.nb_elem;b_idx++) {
+            SIFT_Feat feat_b = sift_b_buf.data[b_idx];
+
+            float dist = compute_dist(feat_a, feat_b);
+            if(dist < first_best_distance) {
+                second_best_distance = first_best_distance;
+                second_best_idx = first_best_idx;
+                first_best_distance = dist;
+                first_best_idx = b_idx;
+            }
+            else if(dist < second_best_distance) {
+                second_best_distance = dist;
+                second_best_idx = b_idx;
+            }
+        }
+
+        dist_buf.data[a_idx].idx_a = a_idx;
+        dist_buf.data[a_idx].idx_b1 = first_best_idx;
+        dist_buf.data[a_idx].idx_b2 = second_best_idx;
+        dist_buf.data[a_idx].dist_ab1 = first_best_distance;
+        dist_buf.data[a_idx].dist_ab2 = second_best_distance;
+    }
 }
