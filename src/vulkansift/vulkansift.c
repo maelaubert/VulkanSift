@@ -315,8 +315,10 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   // Destroy SiftMemory
   VK_NULL_SAFE_DELETE(instance->sift_memory, vksift_destroySiftMemory(&instance->sift_memory));
 
+#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   // Destroy DebugPresenter
   VK_NULL_SAFE_DELETE(instance->debug_presenter, vkenv_destroyDebugPresenter(instance->vulkan_device, &instance->debug_presenter));
+#endif
 
   // Destroy Vulkan device
   VK_NULL_SAFE_DELETE(instance->vulkan_device, vkenv_destroyDevice(&instance->vulkan_device));
@@ -326,9 +328,16 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   *instance_ptr = NULL;
 }
 
+bool vksift_presentDebugFrame(vksift_Instance instance)
+{
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
-bool vksift_presentDebugFrame(vksift_Instance instance) { return vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter); }
+
+  return vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter);
+#else
+  logWarning(LOG_TAG, "vksift_presentDebugFrame() was called but library was not built with GPU DEBUG capabilities.");
+  return false;
 #endif
+}
 
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id)

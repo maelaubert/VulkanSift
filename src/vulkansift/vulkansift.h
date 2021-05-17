@@ -28,11 +28,11 @@ void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, ui
 uint32_t vksift_getMatchesNumber(vksift_Instance instance);
 void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
 
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+// WARNING | Only implemented when the library was build with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
+//         | Return false and log a warning if this is not the case.
 // Draw an empty frame in the debug window. Necessary to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight
 // (They use frame delimiters to detect when to start/stop debugging and can't detect compute-only applications)
 bool vksift_presentDebugFrame(vksift_Instance instance);
-#endif
 
 ///////////////////////////////////////////////////////////////////////
 // Scale-space access functions (for debug and visualization)

@@ -2,34 +2,11 @@ extern "C"
 {
 #include <vulkansift/vulkansift.h>
 }
+#include "test_utils.h"
+
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <vector>
-
-cv::Mat getColormappedDoGImage(cv::Mat image)
-{
-  cv::Mat out_image;
-  image.copyTo(out_image);
-  cv::cvtColor(out_image, out_image, cv::COLOR_GRAY2BGR);
-  for (int y = 0; y < image.rows; y++)
-  {
-    for (int x = 0; x < image.cols; x++)
-    {
-      float val = image.at<float>(cv::Point(x, y));
-      if (val >= 0)
-      {
-        val = fminf(val / 0.15f, 1.f);
-        out_image.at<cv::Point3f>(cv::Point(x, y)) = cv::Point3f(0.f, val, 0.f);
-      }
-      else
-      {
-        val = fminf(-val / 0.15f, 1.f);
-        out_image.at<cv::Point3f>(cv::Point(x, y)) = cv::Point3f(0.f, 0.f, val);
-      }
-    }
-  }
-  return out_image;
-}
 
 int main()
 {
@@ -75,7 +52,7 @@ int main()
     cv::cvtColor(blurred_image, blurred_image, cv::COLOR_GRAY2BGR);
     cv::resize(blurred_image, blurred_image, image.size());
 
-    // Get next blurred image
+    // Get next scale blurred image
     cv::Mat next_blurred_image;
     next_blurred_image.create(height, width, CV_32F);
     vksift_downloadScaleSpaceImage(vksift_instance, oct_idx, scale_idx + 1, (float *)next_blurred_image.data);
