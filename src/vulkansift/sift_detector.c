@@ -104,11 +104,13 @@ static void setupGaussianKernels(vksift_SiftDetector detector)
       kernel_tmp_data[i] = exp(-0.5 * powf((float)(i), 2.f) / powf(sep_kernel_sigma, 2.f));
       sum_kernel += 2 * kernel_tmp_data[i];
     }
-    logError(LOG_TAG, "scale %d", scale_i);
+
+    logDebug(LOG_TAG, "Gaussian kernels");
+    logDebug(LOG_TAG, "Scale %d sigma=%f kernel size=%d", scale_i, sep_kernel_sigma, kernel_size);
     for (uint32_t i = 0; i < kernel_size; i++)
     {
       kernel_tmp_data[i] /= sum_kernel;
-      logError(LOG_TAG, "%f", kernel_tmp_data[i]);
+      logDebug(LOG_TAG, "%f", kernel_tmp_data[i]);
     }
 
     float *scale_kernel = &detector->gaussian_kernels[scale_i * VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE];
@@ -135,7 +137,6 @@ static void setupGaussianKernels(vksift_SiftDetector detector)
         scale_kernel[i] = kernel_tmp_data[i];
       }
     }
-    logInfo(LOG_TAG, "Scale %d: sigma=%f | kernel size=%d", scale_i, sep_kernel_sigma, kernel_size);
   }
 }
 

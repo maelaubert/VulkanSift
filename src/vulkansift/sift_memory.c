@@ -33,7 +33,7 @@ void updateScaleSpaceInfo(vksift_SiftMemory memory)
     // Compute octave images width and height
     memory->octave_resolutions[oct_idx].width = (1.f / (powf(2.f, oct_idx) * scale_factor)) * (float)memory->curr_input_image_width;
     memory->octave_resolutions[oct_idx].height = (1.f / (powf(2.f, oct_idx) * scale_factor)) * (float)memory->curr_input_image_height;
-    logInfo(LOG_TAG, "Octave %d resolution: (%d, %d)", oct_idx, memory->octave_resolutions[oct_idx].width, memory->octave_resolutions[oct_idx].height);
+    logDebug(LOG_TAG, "Octave %d resolution: (%d, %d)", oct_idx, memory->octave_resolutions[oct_idx].width, memory->octave_resolutions[oct_idx].height);
   }
 }
 
@@ -83,8 +83,52 @@ void updateBufferInfo(vksift_SiftMemory memory, uint32_t buffer_idx)
     {
       offset += offset_alignment - alignment_mod;
     }
-    logInfo(LOG_TAG, "Octave %d max number of features: %d", i, memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr[i]);
+    logDebug(LOG_TAG, "Octave %d max number of features: %d", i, memory->sift_buffers_info[buffer_idx].octave_section_max_nb_feat_arr[i]);
   }
+}
+
+static bool estimateHighestMemoryRequirement(vksift_SiftMemory memory, uint32_t max_nb_pixels, VkMemoryRequirements *max_memory_requirement_ptr,
+                                             VkImageCreateFlags flags, VkImageType image_type, VkFormat format, uint32_t mip_levels, uint32_t array_layers,
+                                             VkSampleCountFlags samples, VkImageTiling tiling, VkImageUsageFlags usage, VkSharingMode sharing_mode,
+                                             uint32_t queue_family_index_count, const uint32_t *queue_family_indices_ptr, VkImageLayout initial_layout)
+{
+  // Given a maximum number of pixels for an image, try find the aspect ratio that requires the highest memory space by trying the most common aspect
+  // ratio. GPU driver may require additionnal space for alignment, but the implementation details are only known by the vendor. On NVIDIA 2060, images
+  // rows and columns seems to require a 64 bytes alignment, but some additionnal bytes may be required.
+
+  float ratios[4] = {1.f, 4.f / 3.f, 16.f / 9.f, 16.f / 10.f};
+
+  VkImage temp_image = NULL;
+  max_memory_requirement_ptr->size = 0u;
+  VkMemoryRequirements memory_requirement;
+  VkExtent3D extent = {.width = 1, .height = 1, .depth = 1};
+  float fmax_nb_pixels = (float)max_nb_pixels;
+
+  for (int i = 0; i < 4; i++)
+  {
+    // Try out every ratio
+    uint32_t width = (uint32_t)ceilf(sqrtf(fmax_nb_pixels * ratios[i]));
+    uint32_t height = (uint32_t)ceilf((float)width / ratios[i]);
+    extent.width = width;
+    extent.height = height;
+
+    if (!vkenv_createImage(&temp_image, memory->device, flags, image_type, format, extent, mip_levels, array_layers, samples, tiling, usage, sharing_mode,
+                           queue_family_index_count, queue_family_indices_ptr, initial_layout))
+    {
+      logError(LOG_TAG, "Failed to create a VkImage in findHighestMemoryRequirementImage()");
+      return false;
+    }
+    vkGetImageMemoryRequirements(memory->device->device, temp_image, &memory_requirement);
+    vkDestroyImage(memory->device->device, temp_image, NULL);
+
+    if (memory_requirement.size >= max_memory_requirement_ptr->size)
+    {
+      // logError(LOG_TAG, "Found higher mem req (%u) for res (%d,%d)", memory_requirement.size, width, height);
+      *max_memory_requirement_ptr = memory_requirement;
+    }
+  }
+
+  return true;
 }
 
 bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
@@ -106,15 +150,18 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                                  VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE,
                                  0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+  res = res && estimateHighestMemoryRequirement(memory, memory->curr_input_image_width * memory->curr_input_image_height, &memory_requirement, 0,
+                                                VK_IMAGE_TYPE_2D, VK_FORMAT_R8_UNORM, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                                VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
 
-  vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
   if (memory_requirement.size > memory->input_image_memory_size)
   {
     VK_NULL_SAFE_DELETE(memory->input_image_memory, vkFreeMemory(memory->device->device, memory->input_image_memory, NULL));
     res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
     res = res && vkenv_allocateMemory(&memory->input_image_memory, memory->device, memory_requirement.size, memory_type_idx);
     memory->input_image_memory_size = memory_requirement.size;
-    logInfo(LOG_TAG, "Input image (%d,%d) realloc", memory->curr_input_image_width, memory->curr_input_image_height);
+    logDebug(LOG_TAG, "Input image (%d,%d) allocation", memory->curr_input_image_width, memory->curr_input_image_height);
   }
   res = res && vkenv_bindImageMemory(memory->device, memory->input_image, memory->input_image_memory, 0u);
   res = res && vkenv_createImageView(&memory->input_image_view, memory->device, 0, memory->input_image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8_UNORM,
@@ -136,8 +183,12 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             (VkExtent3D){.width = width, .height = height, .depth = 1}, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1, 1,
+                                                  VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
 
-    vkGetImageMemoryRequirements(memory->device->device, memory->blur_tmp_image_arr[oct_idx], &memory_requirement);
     if (memory_requirement.size > memory->blur_tmp_image_memory_size_arr[oct_idx])
     {
       VK_NULL_SAFE_DELETE(memory->blur_tmp_image_memory_arr[oct_idx],
@@ -145,7 +196,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
       res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
       res = res && vkenv_allocateMemory(&memory->blur_tmp_image_memory_arr[oct_idx], memory->device, memory_requirement.size, memory_type_idx);
       memory->blur_tmp_image_memory_size_arr[oct_idx] = memory_requirement.size;
-      logInfo(LOG_TAG, "Blur tmp image (oct %d) (%d,%d) realloc", oct_idx, width, height);
+      logDebug(LOG_TAG, "Blur tmp image (oct %d) (%d,%d) allocation", oct_idx, width, height);
     }
     res = res && vkenv_bindImageMemory(memory->device, memory->blur_tmp_image_arr[oct_idx], memory->blur_tmp_image_memory_arr[oct_idx], 0);
     res = res && vkenv_createImageView(&memory->blur_tmp_image_view_arr[oct_idx], memory->device, 0, memory->blur_tmp_image_arr[oct_idx],
@@ -170,15 +221,19 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
+                                                  memory->nb_scales_per_octave + 3, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
 
-    vkGetImageMemoryRequirements(memory->device->device, memory->octave_image_arr[oct_idx], &memory_requirement);
     if (memory_requirement.size > memory->octave_image_memory_size_arr[oct_idx])
     {
       VK_NULL_SAFE_DELETE(memory->octave_image_memory_arr[oct_idx], vkFreeMemory(memory->device->device, memory->octave_image_memory_arr[oct_idx], NULL));
       res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
       res = res && vkenv_allocateMemory(&memory->octave_image_memory_arr[oct_idx], memory->device, memory_requirement.size, memory_type_idx);
       memory->octave_image_memory_size_arr[oct_idx] = memory_requirement.size;
-      logInfo(LOG_TAG, "Octave image (oct %d) (%d,%d) realloc", oct_idx, width, height);
+      logDebug(LOG_TAG, "Octave image (oct %d) (%d,%d) allocation", oct_idx, width, height);
     }
     res = res && vkenv_bindImageMemory(memory->device, memory->octave_image_arr[oct_idx], memory->octave_image_memory_arr[oct_idx], 0);
     res = res && vkenv_createImageView(&memory->octave_image_view_arr[oct_idx], memory->device, 0, memory->octave_image_arr[oct_idx],
@@ -203,8 +258,12 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
+                                                  memory->nb_scales_per_octave + 2, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
 
-    vkGetImageMemoryRequirements(memory->device->device, memory->octave_DoG_image_arr[oct_idx], &memory_requirement);
     if (memory_requirement.size > memory->octave_DoG_image_memory_size_arr[oct_idx])
     {
       VK_NULL_SAFE_DELETE(memory->octave_DoG_image_memory_arr[oct_idx],
@@ -212,7 +271,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
       res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
       res = res && vkenv_allocateMemory(&memory->octave_DoG_image_memory_arr[oct_idx], memory->device, memory_requirement.size, memory_type_idx);
       memory->octave_DoG_image_memory_size_arr[oct_idx] = memory_requirement.size;
-      logInfo(LOG_TAG, "Octave DoG image (oct %d) (%d,%d) realloc", oct_idx, width, height);
+      logDebug(LOG_TAG, "Octave DoG image (oct %d) (%d,%d) allocation", oct_idx, width, height);
     }
     res = res && vkenv_bindImageMemory(memory->device, memory->octave_DoG_image_arr[oct_idx], memory->octave_DoG_image_memory_arr[oct_idx], 0);
     res = res && vkenv_createImageView(&memory->octave_DoG_image_view_arr[oct_idx], memory->device, 0, memory->octave_DoG_image_arr[oct_idx],

@@ -76,7 +76,7 @@ int main()
   cv::resize(grayimg, grayimg, cv::Size(1920, 1080));
   // cv::resize(grayimg, grayimg, cv::Size(640, 480));
 
-  vksift_setLogLevel(VKSIFT_LOG_INFO);
+  vksift_setLogLevel(VKSIFT_LOG_DEBUG);
 
   if (!vksift_loadVulkan())
   {

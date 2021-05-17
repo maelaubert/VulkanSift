@@ -35,7 +35,9 @@ typedef enum
 {
   VKSIFT_NO_LOG,
   VKSIFT_LOG_ERROR,
-  VKSIFT_LOG_INFO
+  VKSIFT_LOG_WARNING,
+  VKSIFT_LOG_INFO,
+  VKSIFT_LOG_DEBUG
 } vksift_LogLevel;
 
 typedef enum

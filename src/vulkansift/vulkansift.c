@@ -80,11 +80,17 @@ void vksift_setLogLevel(vksift_LogLevel level)
   case VKSIFT_LOG_ERROR:
     vkenv_setLogLevel(VKENV_LOG_ERROR);
     break;
+  case VKSIFT_LOG_WARNING:
+    vkenv_setLogLevel(VKENV_LOG_WARNING);
+    break;
   case VKSIFT_LOG_INFO:
     vkenv_setLogLevel(VKENV_LOG_INFO);
     break;
+  case VKSIFT_LOG_DEBUG:
+    vkenv_setLogLevel(VKENV_LOG_DEBUG);
+    break;
   default:
-    logError(LOG_TAG, "Unhandled vksift_LogLevel in vksift_setLogLevel()");
+    logError(LOG_TAG, "vksift_LogLevel in vksift_setLogLevel() is not handled");
     break;
   }
 }
