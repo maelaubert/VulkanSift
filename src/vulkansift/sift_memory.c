@@ -108,12 +108,12 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                                  0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
 
   vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
-  if (memory_requirement.size > memory->intput_image_memory_size)
+  if (memory_requirement.size > memory->input_image_memory_size)
   {
     VK_NULL_SAFE_DELETE(memory->input_image_memory, vkFreeMemory(memory->device->device, memory->input_image_memory, NULL));
     res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
     res = res && vkenv_allocateMemory(&memory->input_image_memory, memory->device, memory_requirement.size, memory_type_idx);
-    memory->intput_image_memory_size = memory_requirement.size;
+    memory->input_image_memory_size = memory_requirement.size;
     logInfo(LOG_TAG, "Input image (%d,%d) realloc", memory->curr_input_image_width, memory->curr_input_image_height);
   }
   res = res && vkenv_bindImageMemory(memory->device, memory->input_image, memory->input_image_memory, 0u);
@@ -496,6 +496,12 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     logError(LOG_TAG, "An error occured when creating the SIFT buffer fences");
     return false;
   }
+  // Create the pyramid image transfer fence (created as signaled, signaled means not currently used)
+  if (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->pyr_image_transfer_fence) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "An error occured when creating the pyramid image transfer fence");
+    return false;
+  }
 
   //////////////////////////////////////////////////////////////////////
   // Map staging objects
@@ -760,6 +766,7 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   VK_NULL_SAFE_DELETE(memory->output_image, vkDestroyImage(memory->device->device, memory->output_image, NULL));
   VK_NULL_SAFE_DELETE(memory->input_image_memory, vkFreeMemory(memory->device->device, memory->input_image_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->output_image_memory, vkFreeMemory(memory->device->device, memory->output_image_memory, NULL));
+  VK_NULL_SAFE_DELETE(memory->pyr_image_transfer_fence, vkDestroyFence(memory->device->device, memory->pyr_image_transfer_fence, NULL));
 
   // Destroy command pool
   if (memory->device->async_transfer_available)
@@ -1205,6 +1212,88 @@ bool vksift_Memory_copyBufferMatchesFromGPU(vksift_SiftMemory memory, vksift_Mat
 
   // At this point the features are stored in the sift staging buffer, we can just copy them to user memory
   memcpy(out_matches_ptr, memory->match_output_staging_buffer_ptr, sizeof(vksift_Match_2NN) * memory->curr_nb_matches);
+
+  return true;
+}
+
+bool vksift_Memory_copyPyramidImageFromGPU(vksift_SiftMemory memory, const uint8_t octave, const uint8_t scale, const bool is_dog, float *out_image_data)
+{
+  VkImage target_image = is_dog ? memory->octave_DoG_image_arr[octave] : memory->octave_image_arr[octave];
+  uint32_t width = memory->octave_resolutions[octave].width;
+  uint32_t height = memory->octave_resolutions[octave].height;
+
+  // Setup transfer command buffer
+  VkCommandBufferBeginInfo cmdbuf_begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = NULL, .flags = 0, .pInheritanceInfo = NULL};
+  bool res = true;
+  res = res && (vkBeginCommandBuffer(memory->transfer_command_buffer, &cmdbuf_begin_info) == VK_SUCCESS);
+  if (memory->pyr_precision_mode != VKSIFT_PYRAMID_PRECISION_FLOAT32)
+  {
+    // GPU image -> GPU image copy to handle format transfer (only if not already in 32bit float format)
+    VkImageBlit region = {
+        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = scale, .layerCount = 1},
+        .srcOffsets = {{0, 0, 0}, {width, height, 1}},
+        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+        .dstOffsets = {{0, 0, 0}, {width, height, 1}},
+    };
+    vkCmdBlitImage(memory->transfer_command_buffer, target_image, VK_IMAGE_LAYOUT_GENERAL, memory->output_image, VK_IMAGE_LAYOUT_GENERAL, 1, &region,
+                   VK_FILTER_LINEAR);
+    target_image = memory->output_image;
+  }
+  // Copy target image to output staging buffer
+  VkBufferImageCopy region = {.bufferOffset = 0u,
+                              .bufferRowLength = 0,
+                              .bufferImageHeight = 0,
+                              .imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = scale, .layerCount = 1},
+                              .imageOffset = {0, 0, 0},
+                              .imageExtent = {width, height, 1}};
+  vkCmdCopyImageToBuffer(memory->transfer_command_buffer, target_image, VK_IMAGE_LAYOUT_GENERAL, memory->image_staging_buffer, 1, &region);
+
+  res = res && (vkEndCommandBuffer(memory->transfer_command_buffer) == VK_SUCCESS);
+  if (!res)
+  {
+    logError(LOG_TAG, "Failed to record the GPU->CPU pyramid image transfer command buffer");
+    return false;
+  }
+
+  // Reset pyramid transfer fence
+  vkResetFences(memory->device->device, 1, &memory->pyr_image_transfer_fence);
+
+  VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                              .pNext = NULL,
+                              .waitSemaphoreCount = 0,
+                              .pWaitSemaphores = NULL,
+                              .pWaitDstStageMask = NULL,
+                              .commandBufferCount = 1,
+                              .pCommandBuffers = &memory->transfer_command_buffer,
+                              .signalSemaphoreCount = 0,
+                              .pSignalSemaphores = NULL};
+  VkQueue target_queue = memory->general_queue;
+  if (memory->device->async_transfer_available)
+  {
+    target_queue = memory->async_transfer_queue;
+  }
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->pyr_image_transfer_fence) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to submit the GPU->CPU pyramid image transfer command buffer");
+    return false;
+  }
+  if (vkWaitForFences(memory->device->device, 1, &memory->pyr_image_transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Error when waiting for GPU->CPU pyramid image transfer to complete");
+    return false;
+  }
+
+  // Invalidate output image staging buffer to be sure the transfer results are visible on the CPU
+  VkMappedMemoryRange output_image_range = {
+      .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, .pNext = NULL, .memory = memory->image_staging_buffer_memory, .offset = 0, .size = VK_WHOLE_SIZE};
+  if (vkInvalidateMappedMemoryRanges(memory->device->device, 1, &output_image_range) != VK_SUCCESS)
+  {
+    logError(LOG_TAG, "Failed to invalidate the image staging buffer memory");
+    return false;
+  }
+
+  // At this point the features are stored in the sift staging buffer, we can just copy them to user memory
+  memcpy(out_image_data, memory->image_staging_buffer_ptr, sizeof(float) * width * height);
 
   return true;
 }

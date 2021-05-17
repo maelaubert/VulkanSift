@@ -36,10 +36,10 @@ bool vksift_presentDebugFrame(vksift_Instance instance);
 
 ///////////////////////////////////////////////////////////////////////
 // Scale-space access functions (for debug and visualization)
-uint8_t vksift_getScaleSpaceNbOctaves();
-void vksift_getScaleSpaceOctaveResolution(const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
-void vksift_downloadScaleSpaceImage(const uint8_t octave, const uint8_t scale, const float *blurred_image);
-void vksift_downloadDoGImage(const uint8_t octave, const uint8_t scale, const float *blurred_image);
+uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance);
+void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
+void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *blurred_image);
+void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image);
 ///////////////////////////////////////////////////////////////////////
 
 #endif // VULKAN_SIFT_H

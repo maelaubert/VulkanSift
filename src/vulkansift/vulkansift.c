@@ -187,6 +187,34 @@ bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
   }
 }
 
+bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
+{
+  if (octave_idx >= instance->sift_memory->curr_nb_octaves)
+  {
+    logError(LOG_TAG, "Requested octave idx is %d but the current number of octaves is %d", octave_idx, instance->sift_memory->curr_nb_octaves);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog)
+{
+  uint32_t add_scale = is_dog ? 2 : 3;
+  if (scale_idx >= (instance->sift_memory->nb_scales_per_octave + add_scale))
+  {
+    logError(LOG_TAG, "Requested scale idx is %d but the number of %s scales is %d", scale_idx, is_dog ? "DoG" : "blurred",
+             (instance->sift_memory->nb_scales_per_octave + add_scale));
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
 bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
@@ -423,3 +451,56 @@ void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
     abort();
   }
 }
+
+///////////////////////////////////////////////////////////////////////
+// Scale-space access functions (for debug and visualization)
+uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance) { return instance->sift_memory->curr_nb_octaves; }
+
+void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height)
+{
+  if (octave > instance->sift_memory->curr_nb_octaves)
+  {
+    logError(LOG_TAG, "vksift_getScaleSpaceOctaveResolution() error: invalid input. Requested octave idx is %d but the current number of octave is %d",
+             octave, instance->sift_memory->curr_nb_octaves);
+    abort();
+  }
+  *octave_images_width = instance->sift_memory->octave_resolutions[octave].width;
+  *octave_images_height = instance->sift_memory->octave_resolutions[octave].height;
+}
+
+void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *blurred_image)
+{
+  if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, false))
+  {
+    logError(LOG_TAG, "vksift_downloadScaleSpaceImage() error: invalid input.");
+  }
+
+  // Images cannot be transferred when a detection is running, wait for the fence to be sure this is not the case
+  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, false, blurred_image))
+  {
+    logError(LOG_TAG, "vksift_downloadScaleSpaceImage() error when downloading pyramid blurred image from GPU memory.");
+    abort();
+  }
+}
+
+void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image)
+{
+  if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, true))
+  {
+    logError(LOG_TAG, "vksift_downloadDoGImage() error: invalid input.");
+  }
+
+  // Images cannot be transferred when a detection is running, wait for the fence to be sure this is not the case
+  VkFence fences[1] = {instance->sift_detector->end_of_detection_fence};
+  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+
+  if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, true, dog_image))
+  {
+    logError(LOG_TAG, "vksift_downloadDoGImage() error when downloading pyramid DoG image from GPU memory.");
+    abort();
+  }
+}
+///////////////////////////////////////////////////////////////////////

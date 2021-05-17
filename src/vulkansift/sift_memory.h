@@ -57,11 +57,12 @@ typedef struct vksift_SiftMemory_T
   VkBuffer image_staging_buffer;
   VkDeviceMemory image_staging_buffer_memory;
   void *image_staging_buffer_ptr;
+  VkFence pyr_image_transfer_fence;
 
   VkImage input_image;
   VkImageView input_image_view;
   VkDeviceMemory input_image_memory;
-  VkDeviceSize intput_image_memory_size;
+  VkDeviceSize input_image_memory_size;
 
   VkImage output_image; // output image is used to export scalespace images to the CPU for debug/viz
   VkDeviceMemory output_image_memory;
@@ -147,6 +148,9 @@ bool vksift_Memory_getBufferMatchesCount(vksift_SiftMemory memory, uint32_t *out
 
 // Run a transfer command to retrieve the SIFT matches from the GPU (GPU not involved in this function)
 bool vksift_Memory_copyBufferMatchesFromGPU(vksift_SiftMemory memory, vksift_Match_2NN *out_matches_ptr);
+
+// Transfer one of the pyramid image to the CPU
+bool vksift_Memory_copyPyramidImageFromGPU(vksift_SiftMemory memory, const uint8_t octave, const uint8_t scale, const bool is_dog, float *out_image_data);
 
 // Destory every memory object and free stuffs
 void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr);

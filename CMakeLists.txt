@@ -140,7 +140,9 @@ target_compile_definitions(test_sift_match PRIVATE VKSIFT_GPU_DEBUG=1)
 target_compile_options(test_sift_match PRIVATE "-O3")
 target_link_libraries(test_sift_match vulkansift ${OpenCV_LIBS})
 
-
+add_executable(test_sift_show_pyr src/examples/test_sift_show_pyr.cpp)
+target_compile_options(test_sift_show_pyr PRIVATE "-O3")
+target_link_libraries(test_sift_show_pyr vulkansift ${OpenCV_LIBS})
 
 endif()
 

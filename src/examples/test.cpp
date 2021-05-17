@@ -44,6 +44,32 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<vksift_Feature> k
   return output_mat_rgb;
 }
 
+cv::Mat getColormappedDoGImage(cv::Mat image)
+{
+  cv::Mat out_image;
+  image.copyTo(out_image);
+  cv::cvtColor(out_image, out_image, cv::COLOR_GRAY2BGR);
+  // out_image.create(image.rows, image.cols, CV_8UC3);
+  for (int y = 0; y < image.rows; y++)
+  {
+    for (int x = 0; x < image.cols; x++)
+    {
+      float val = image.at<float>(cv::Point(x, y));
+      if (val >= 0)
+      {
+        val = fminf(fabs(val) / 0.15f, 1.f);
+        out_image.at<cv::Point3f>(cv::Point(x, y)) = cv::Point3f(0.f, val, 0.f);
+      }
+      else
+      {
+        val = fminf(fabs(val) / 0.15f, 1.f);
+        out_image.at<cv::Point3f>(cv::Point(x, y)) = cv::Point3f(0.f, 0.f, val);
+      }
+    }
+  }
+  return out_image;
+}
+
 int main()
 {
   cv::Mat grayimg = cv::imread("../res/img1.ppm", cv::ImreadModes::IMREAD_GRAYSCALE);
@@ -107,9 +133,37 @@ int main()
     vksift_matchFeatures(vksift_instance, 0u, 1u);
     uint32_t match_number = vksift_getMatchesNumber(vksift_instance);
     std::cout << "Matches found: " << match_number << std::endl;
-
     // buffer_idx = (buffer_idx + 1) % config.sift_buffer_count;
   }
+
+  /*uint32_t nb_octave = vksift_getScaleSpaceNbOctaves(vksift_instance);
+  for (uint32_t oct_idx = 0; oct_idx < nb_octave; oct_idx++)
+  {
+    for (uint32_t scale_idx = 0; scale_idx < config.nb_scales_per_octave + 3; scale_idx++)
+    {
+      cv::Mat blurred_image;
+      uint32_t width, height;
+      vksift_getScaleSpaceOctaveResolution(vksift_instance, oct_idx, &width, &height);
+      std::cout << "width: " << width << " height: " << height << std::endl;
+      blurred_image.create(height, width, CV_32F);
+      vksift_downloadScaleSpaceImage(vksift_instance, oct_idx, scale_idx, (float *)blurred_image.data);
+      std::string window_name{"Blurred " + std::to_string(oct_idx) + "/" + std::to_string(scale_idx)};
+      cv::imshow(window_name, blurred_image);
+    }
+    for (uint32_t scale_idx = 0; scale_idx < config.nb_scales_per_octave + 2; scale_idx++)
+    {
+      cv::Mat dog_image;
+      uint32_t width, height;
+      vksift_getScaleSpaceOctaveResolution(vksift_instance, oct_idx, &width, &height);
+      std::cout << "width: " << width << " height: " << height << std::endl;
+      dog_image.create(height, width, CV_32F);
+      vksift_downloadDoGImage(vksift_instance, oct_idx, scale_idx, (float *)dog_image.data);
+      cv::Mat color_dog_image = getColormappedDoGImage(dog_image);
+      std::string window_name{"DoG " + std::to_string(oct_idx) + "/" + std::to_string(scale_idx)};
+      cv::imshow(window_name, color_dog_image);
+    }
+  }
+  cv::waitKey(0);*/
 
   vksift_destroyInstance(&vksift_instance);
   vksift_unloadVulkan();

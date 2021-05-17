@@ -281,7 +281,6 @@ static void recMatchingCmds(vksift_SiftMatcher matcher, VkCommandBuffer cmdbuf)
                                                     VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, VK_WHOLE_SIZE);
 
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1, buffer_barriers, 0, NULL);
-  logError(LOG_TAG, "currnbmatches %d", matcher->mem->curr_nb_matches);
   VkBufferCopy matches_copy_region = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(vksift_Match_2NN) * matcher->mem->curr_nb_matches};
   vkCmdCopyBuffer(cmdbuf, matcher->mem->match_output_buffer, matcher->mem->match_output_staging_buffer, 1, &matches_copy_region);
 
