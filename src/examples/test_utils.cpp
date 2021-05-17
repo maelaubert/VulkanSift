@@ -22,15 +22,15 @@ cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<vksift_Feature> k
     cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
 
     int radius = kp.sigma;
-    cv::circle(output_mat_rgb, cv::Point(kp.orig_x, kp.orig_y), radius, color, 1);
-    float angle = kp.theta;
+    cv::circle(output_mat_rgb, cv::Point(kp.x, kp.y), radius, color, 1);
+    float angle = kp.orientation;
     if (angle > 3.14f)
     {
       angle -= 2.f * 3.14f;
     }
 
     cv::Point orient(cosf(angle) * radius, sinf(angle) * radius);
-    cv::line(output_mat_rgb, cv::Point(kp.orig_x, kp.orig_y), cv::Point(kp.orig_x, kp.orig_y) + orient, color, 1);
+    cv::line(output_mat_rgb, cv::Point(kp.x, kp.y), cv::Point(kp.x, kp.y) + orient, color, 1);
   }
 
   return output_mat_rgb;
@@ -73,9 +73,9 @@ cv::Mat getKeypointsMatchesImage(uint8_t *in_img1, std::vector<vksift_Feature> k
   for (size_t i = 0; i < kps1.size(); i++)
   {
     cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
-    cv::Point im1_p(kps1.at(i).orig_x, kps1.at(i).orig_y);
+    cv::Point im1_p(kps1.at(i).x, kps1.at(i).y);
     cv::Point im2_origin(max_width, 0);
-    cv::Point im2_p(kps2.at(i).orig_x, kps2.at(i).orig_y);
+    cv::Point im2_p(kps2.at(i).x, kps2.at(i).y);
     cv::line(concatenated_mat, im1_p, im2_origin + im2_p, color, 2, cv::LINE_AA);
   }
 

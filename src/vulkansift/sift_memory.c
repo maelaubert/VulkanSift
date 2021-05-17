@@ -843,12 +843,15 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   free(memory->blur_tmp_image_arr);
   free(memory->blur_tmp_image_view_arr);
   free(memory->blur_tmp_image_memory_arr);
+  free(memory->blur_tmp_image_memory_size_arr);
   free(memory->octave_image_arr);
   free(memory->octave_image_view_arr);
   free(memory->octave_image_memory_arr);
+  free(memory->octave_image_memory_size_arr);
   free(memory->octave_DoG_image_arr);
   free(memory->octave_DoG_image_view_arr);
   free(memory->octave_DoG_image_memory_arr);
+  free(memory->octave_DoG_image_memory_size_arr);
   for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
   {
     free(memory->sift_buffers_info[i].octave_section_max_nb_feat_arr);

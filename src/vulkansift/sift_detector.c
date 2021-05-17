@@ -20,8 +20,8 @@ typedef struct
 
 typedef struct
 {
-  float scale_factor;
-  float sigma_multiplier;
+  int32_t octave_idx;
+  float seed_scale_sigma;
   float dog_threshold;
   float edge_threshold;
 } ExtractKeypointsPushConsts;
@@ -1131,9 +1131,8 @@ static void recExtractKeypointsCmds(vksift_SiftDetector detector, VkCommandBuffe
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
     ExtractKeypointsPushConsts pushconst;
-    pushconst.sigma_multiplier = detector->seed_scale_sigma;
-    // scale factor applied to the blur level (sigma) (ex: oct1 = 1.6 * scale_factor=1, oct2 = 1.6*scale_factor=2)
-    pushconst.scale_factor = powf(2.f, oct_idx) * (detector->mem->use_upsampling ? 0.5f : 1.f);
+    pushconst.octave_idx = (int32_t)(oct_idx) - (detector->mem->use_upsampling ? 1 : 0);
+    pushconst.seed_scale_sigma = detector->seed_scale_sigma;
     pushconst.dog_threshold = detector->intensity_threshold / detector->mem->nb_scales_per_octave;
     pushconst.edge_threshold = detector->edge_threshold;
     // logError(LOG_TAG, "sigmul %f", pushconst.sigma_multiplier);
@@ -1285,6 +1284,8 @@ static void recCopySIFTCountCmds(vksift_SiftDetector detector, VkCommandBuffer c
     vkCmdCopyBuffer(cmdbuf, sift_buffer, detector->mem->sift_count_staging_buffer_arr[detector->curr_buffer_idx], 1, &sift_copy_region);
   }
   endMarkerRegion(detector, cmdbuf);
+
+  free(buffer_barriers);
 }
 
 static void recBufferOwnershipTransferCmds(vksift_SiftDetector detector, VkCommandBuffer cmdbuf, const uint32_t oct_begin, const uint32_t oct_count,

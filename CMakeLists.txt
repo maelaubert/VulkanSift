@@ -74,10 +74,10 @@ set(VULKANSIFT_LINKER_OPTIONS "")
 # Add options for address and thread sanitizers (debug only) for GCC/CLANG compilers
 # Use -DSANITIZE:BOOL=Address or -DSANITIZE:BOOL=Thread to activate with -DCMAKE_BUILD_TYPE:String=Debug
 if(VULKANSIFT_SANITIZE STREQUAL Address)
-    string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=address")
+    string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fsanitize=address")
     string(APPEND VULKANSIFT_LINKER_OPTIONS "-fsanitize=address")
 elseif(VULKANSIFT_SANITIZE STREQUAL Thread)
-    string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fno-omit-frame-pointer;-fsanitize=thread;")
+    string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fsanitize=thread;")
     string(APPEND VULKANSIFT_LINKER_OPTIONS "-fsanitize=thread")
 endif()
 #####################################################################################
@@ -137,14 +137,23 @@ find_package(OpenCV REQUIRED)
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp src/examples/test_utils.cpp)
 target_compile_options(test_sift_detect PRIVATE "-O3")
 target_link_libraries(test_sift_detect vulkansift ${OpenCV_LIBS})
+target_compile_options(test_sift_detect PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET test_sift_detect APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
+
 # Example program that read two images and perform SIFT feature matching
 add_executable(test_sift_match src/examples/test_sift_match.cpp src/examples/test_utils.cpp)
 target_compile_options(test_sift_match PRIVATE "-O3")
 target_link_libraries(test_sift_match vulkansift ${OpenCV_LIBS})
+target_compile_options(test_sift_match PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET test_sift_match APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
+
 # Example program that detect SIFT features and show the scale-space pyramid images
 add_executable(test_sift_show_pyr src/examples/test_sift_show_pyr.cpp src/examples/test_utils.cpp)
 target_compile_options(test_sift_show_pyr PRIVATE "-O3")
 target_link_libraries(test_sift_show_pyr vulkansift ${OpenCV_LIBS})
+target_compile_options(test_sift_show_pyr PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET test_sift_show_pyr APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
+
 if(VULKANSIFT_WITH_GPU_DEBUG)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
@@ -189,11 +198,15 @@ add_executable(perf_sift_match src/perf/perf_matching.cpp ${VULKAN_SIFT_PERFS_CO
 target_compile_options(perf_sift_match PRIVATE "-O3;-fopenmp")
 target_include_directories(perf_sift_match PRIVATE ${VULKAN_SIFT_PERFS_COMMON_INC})
 target_link_libraries(perf_sift_match ${VULKAN_SIFT_PERFS_COMMON_LIBS})
+target_compile_options(perf_sift_match PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET perf_sift_match APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 add_executable(perf_sift_runtime src/perf/perf_runtime.cpp ${VULKAN_SIFT_PERFS_COMMON_SRC})
 target_compile_options(perf_sift_runtime PRIVATE "-O3;-fopenmp")
 target_include_directories(perf_sift_runtime PRIVATE ${VULKAN_SIFT_PERFS_COMMON_INC})
 target_link_libraries(perf_sift_runtime ${VULKAN_SIFT_PERFS_COMMON_LIBS})
+target_compile_options(perf_sift_runtime PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET perf_sift_runtime APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 endif()
 

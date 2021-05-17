@@ -7,14 +7,14 @@
 struct SIFT_Feat {
   float x;
   float y;
-  uint orig_x;
-  uint orig_y;
-  uint index_scale;
+  float scale_x;
+  float scale_y;
+  uint scale_idx;
+  int octave_idx;
   float sigma;
-  float scale_factor;
-  float theta;
-  float value;
-  uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
+  float orientation;
+  float intensity;
+  uint descriptor[(NB_HIST*NB_HIST*NB_ORI)/4];
 };
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -31,8 +31,8 @@ layout(std430, binding = 2) buffer IndispatchBuffer {
 };
 
 layout(push_constant) uniform PushConst {
-  float scale_factor;
-  float sigma_multiplier;
+  int octave_idx;
+  float seed_scale_sigma;
   float dog_threshold;
   float edge_threshold;
 } push_const;
@@ -209,33 +209,22 @@ void main() {
                         if(idx<max_nb_feat) {
                             // avoid out of bound memory writes
                             atomicAdd(nb_x_group, 1);
-                            data[idx].x = subpix_x;
-                            data[idx].y = subpix_y;
-                            data[idx].index_scale = uint(round(subpix_s));
-                            data[idx].scale_factor = push_const.scale_factor;
-                            data[idx].sigma = push_const.sigma_multiplier* pow(2.f, 1/float(gl_NumWorkGroups.z))*pow(2.f, subpix_s/float(gl_NumWorkGroups.z)) * push_const.scale_factor;
-                            data[idx].theta = 0.f;
-                            data[idx].orig_x = uint(round(push_const.scale_factor*subpix_x));
-                            data[idx].orig_y = uint(round(push_const.scale_factor*subpix_y));
-                            data[idx].value = new_val;
+
+                            // this considers upsampling, octave_idx = -1 in the upscaled octave so the scale factor would be 0.5f
+                            float scale_factor = pow(2.f, push_const.octave_idx);
+                            data[idx].scale_x = subpix_x;
+                            data[idx].scale_y = subpix_y;
+                            data[idx].scale_idx = uint(round(subpix_s));
+                            data[idx].octave_idx = push_const.octave_idx;
+                            data[idx].sigma = push_const.seed_scale_sigma * pow(2.f, subpix_s/float(gl_NumWorkGroups.z)) * scale_factor;
+                            data[idx].orientation = 0.f;
+                            data[idx].intensity = new_val;
+                            data[idx].x = subpix_x*scale_factor;
+                            data[idx].y = subpix_y*scale_factor;
                         }
                     }
                 }
             }
-
-
-
-
-            /*uint idx = atomicAdd(nb_elem, 1);
-            data[idx].x = gl_GlobalInvocationID.x;
-            data[idx].y = gl_GlobalInvocationID.y;
-            data[idx].index_scale = gl_GlobalInvocationID.z+1;
-            data[idx].scale_factor = push_const.scale_factor;
-            data[idx].sigma = push_const.sigma_multiplier* pow(2.f, float(data[idx].index_scale)/float(gl_NumWorkGroups.z));
-            data[idx].theta = 0.f;
-            data[idx].orig_x = uint(round(push_const.scale_factor*float(data[idx].x)));
-            data[idx].orig_y = uint(round(push_const.scale_factor*float(data[idx].y)));
-            data[idx].value = center_value;*/
         }
     }
 

@@ -9,17 +9,18 @@
 
 typedef struct
 {
-  // TODO remove unnecessary variables ()
-  float x;
+  float x; // (x,y) if the keypoint position in the input image
   float y;
-  uint32_t orig_x; // TODO: switch to float for subpixel precision at original image res
-  uint32_t orig_y;
-  uint32_t index_scale;
-  float sigma;
-  float scale_factor;
-  float theta;
-  float value;
-  uint8_t feature_vector[VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_ORI];
+
+  float scale_x; // (scale_x,scale_y) is the keypoint position in the pyramid image where it was detected
+  float scale_y;
+  uint32_t scale_idx; // index of the gaussian scale image
+  int32_t octave_idx; // index of the octave (-1 correspond to the upscaled image)
+  float sigma;        // blur level of the gaussian scale image (this value is divided by two if upsampling was used)
+  float orientation;
+  float intensity; // keypoint pixel intensity in the Difference of Gaussian image
+
+  uint8_t descriptor[VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_HIST * VKSIFT_FEATURE_NB_ORI]; // Feature descriptor
 } vksift_Feature;
 
 typedef struct

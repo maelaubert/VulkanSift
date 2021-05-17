@@ -67,11 +67,11 @@ void VulkanSiftDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<
   kps_img2.clear();
   for (auto kp : img1_kps)
   {
-    kps_img1.push_back({kp.x * kp.scale_factor, kp.y * kp.scale_factor});
+    kps_img1.push_back({kp.x, kp.y});
   }
   for (auto kp : img2_kps)
   {
-    kps_img2.push_back({kp.x * kp.scale_factor, kp.y * kp.scale_factor});
+    kps_img2.push_back({kp.x, kp.y});
   }
 
   std::cout << kps_img1.size() << std::endl;
