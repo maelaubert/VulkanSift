@@ -606,7 +606,8 @@ static bool setupComputePipelines(vksift_SiftDetector detector)
     logError(LOG_TAG, "Failed to create ComputeOrientation shader module");
     return false;
   }
-  if (!vkenv_createComputePipeline(detector->dev->device, orientation_shader_module, detector->orientation_desc_set_layout, 0,
+  // Reserve push const of size uint32 to store the max number of orientation
+  if (!vkenv_createComputePipeline(detector->dev->device, orientation_shader_module, detector->orientation_desc_set_layout, sizeof(uint32_t),
                                    &detector->orientation_pipeline_layout, &detector->orientation_pipeline))
   {
     logError(LOG_TAG, "Failed to create ComputeOrientation pipeline");
@@ -625,7 +626,8 @@ static bool setupComputePipelines(vksift_SiftDetector detector)
     logError(LOG_TAG, "Failed to create ComputeDescriptors shader module");
     return false;
   }
-  if (!vkenv_createComputePipeline(detector->dev->device, descriptor_shader_module, detector->descriptor_desc_set_layout, 0,
+  // Reserve push const of size uint32 to store the descriptor format (for compatibility with descriptor from other detectors)
+  if (!vkenv_createComputePipeline(detector->dev->device, descriptor_shader_module, detector->descriptor_desc_set_layout, sizeof(uint32_t),
                                    &detector->descriptor_pipeline_layout, &detector->descriptor_pipeline))
   {
     logError(LOG_TAG, "Failed to create ComputeDescriptors pipeline");
@@ -1207,6 +1209,7 @@ static void recComputeOrientationsCmds(vksift_SiftDetector detector, VkCommandBu
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, oct_count, buffer_barriers, 0, NULL);
 
   vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->orientation_pipeline);
+  vkCmdPushConstants(cmdbuf, detector->orientation_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &detector->max_nb_orientations);
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
     vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->orientation_pipeline_layout, 0, 1, &detector->orientation_desc_sets[oct_idx],
@@ -1247,6 +1250,7 @@ static void recComputeDestriptorsCmds(vksift_SiftDetector detector, VkCommandBuf
   beginMarkerRegion(detector, cmdbuf, "ComputeDescriptors");
   vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->descriptor_pipeline);
 
+  vkCmdPushConstants(cmdbuf, detector->descriptor_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &detector->use_vlfeat_format);
   for (uint32_t oct_idx = oct_begin; oct_idx < (oct_begin + oct_count); oct_idx++)
   {
     vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, detector->descriptor_pipeline_layout, 0, 1, &detector->descriptor_desc_sets[oct_idx],
@@ -1443,6 +1447,8 @@ bool vksift_createSiftDetector(vkenv_Device device, vksift_SiftMemory memory, vk
   detector->seed_scale_sigma = config->seed_scale_sigma;
   detector->intensity_threshold = config->intensity_threshold;
   detector->edge_threshold = config->edge_threshold;
+  detector->max_nb_orientations = config->max_nb_orientation_per_keypoint;
+  detector->use_vlfeat_format = config->descriptor_format == VKSIFT_DESCRIPTOR_FORMAT_VLFEAT ? 1u : 0u;
 
   detector->curr_buffer_idx = 0u; // Default target buffer is 0 (always available)
 

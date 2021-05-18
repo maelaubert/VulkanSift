@@ -43,8 +43,14 @@ typedef enum
 
 typedef enum
 {
+  VKSIFT_DESCRIPTOR_FORMAT_UBC,
+  VKSIFT_DESCRIPTOR_FORMAT_VLFEAT
+} vksift_DescriptorFormat;
+
+typedef enum
+{
   VKSIFT_PYRAMID_PRECISION_FLOAT16,
-  VKSIFT_PYRAMID_PRECISION_FLOAT32,
+  VKSIFT_PYRAMID_PRECISION_FLOAT32
 } vksift_PyramidPrecisionMode;
 
 typedef struct
@@ -81,13 +87,18 @@ typedef struct
   float edge_threshold;
   // Max number of orientation per SIFT keypoint (one descriptor is detector for each orientation
   // If set to 0, no limit will be applied. (default: 0)
-  uint8_t max_nb_orientation_per_keypoint;
+  uint32_t max_nb_orientation_per_keypoint;
+  // Output format for the descriptor (as an example with other implementations, VLFeat format is used by VLFeat and PopSift and UBC wormat is used by
+  // Lowe's implementation, OpenCV and SiftGPU). (For the format comparison, check https://www.vlfeat.org/overview/sift.html)
+  // (default: VKSIFT_DESCRIPTOR_FORMAT_UBC)
+  vksift_DescriptorFormat descriptor_format;
 
   // GPU and implementation configuration (if <0 the GPU with highest expected performance is selected) (default: -1)
   int32_t gpu_device_index;
   // If true, the GPU hardware texture samplers will be used to speed up the Gaussian scale-space construction. (default: true)
   bool use_hardware_interpolated_blur;
-  // Defines the scale-space image format precision (default: VKSIFT_PYRAMID_PRECISION_FLOAT32)
+  // Defines the scale-space image format precision (default: VKSIFT_PYRAMID_PRECISION_FLOAT32), images being the heaviest GPU resource
+  // switching to a VKSIFT_PYRAMID_PRECISION_FLOAT16 reduces the GPU memory usage by a factor of two, with minor impact on the feature quality.
   vksift_PyramidPrecisionMode pyramid_precision_mode;
 } vksift_Config;
 
@@ -100,10 +111,11 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
                                               .input_image_blur_level = 0.5f,
                                               .seed_scale_sigma = 1.6f, // Lowe's paper
                                               .intensity_threshold = 0.04f,
-                                              .edge_threshold = 10.f,                 // Lowe's paper
-                                              .max_nb_orientation_per_keypoint = 0,   // no limit
-                                              .gpu_device_index = -1,                 // GPU auto-selection
-                                              .use_hardware_interpolated_blur = true, // faster with no noticeable quality loss
+                                              .edge_threshold = 10.f,               // Lowe's paper
+                                              .max_nb_orientation_per_keypoint = 4, // no more than 4 descriptor for a single keypoint position
+                                              .descriptor_format = VKSIFT_DESCRIPTOR_FORMAT_UBC, // compatibility with OpenCV and SiftGPU
+                                              .gpu_device_index = -1,                            // GPU auto-selection
+                                              .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
                                               .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32};
 
 #endif // VKSIFT_TYPES_H

@@ -35,6 +35,10 @@ layout(std430, binding = 2) buffer IndispatchBuffer {
     uint nb_z_group;
 };
 
+layout(push_constant) uniform PushConst {
+  uint max_nb_orientation;
+} push_const;
+
 float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
 }
@@ -167,7 +171,7 @@ void main() {
             if(prev_nb_ori==0) {
                 data[gl_WorkGroupID.x].orientation = keypoint_orientation;
             }
-            else {
+            else if(push_const.max_nb_orientation==0 || prev_nb_ori<push_const.max_nb_orientation) {
                 // Add new keypoint with orientation
                 uint new_kpt_idx = atomicAdd(nb_elem, 1);
                 if(new_kpt_idx<max_nb_feat) {

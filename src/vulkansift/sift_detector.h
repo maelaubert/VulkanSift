@@ -83,6 +83,8 @@ typedef struct vksift_SiftDetector_T
   float seed_scale_sigma;
   float intensity_threshold;
   float edge_threshold;
+  uint32_t max_nb_orientations;
+  uint32_t use_vlfeat_format;
 
 } * vksift_SiftDetector;
 

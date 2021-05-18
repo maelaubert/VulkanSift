@@ -29,6 +29,10 @@ layout(std430, binding = 1) buffer SIFT_buffer {
     SIFT_Feat data[];
 };
 
+layout(push_constant) uniform PushConst {
+  uint use_vlfeat_format;
+} push_const;
+
 float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
 }
@@ -159,7 +163,13 @@ void main() {
         // Compute histogram indexes
         float fhist_x_idx = oriented_x + (NB_HIST/2);
         float fhist_y_idx = oriented_y + (NB_HIST/2);
-        float fbin_idx = orientation * float(NB_ORI) / (2.f * PI);
+        float fbin_idx;
+        if(push_const.use_vlfeat_format!=0) {
+            fbin_idx = orientation * float(NB_ORI) / (2.f * PI);
+        }
+        else {
+            fbin_idx = -orientation * float(NB_ORI) / (2.f * PI);
+        }
 
         int hist_x_idx = int(floor(fhist_x_idx -0.5));
         int hist_y_idx = int(floor(fhist_y_idx -0.5));
