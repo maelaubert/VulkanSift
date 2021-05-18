@@ -74,7 +74,7 @@ int main()
     matches_1.clear();
     matches_2.clear();
 
-    for (int i = 0; i < matches_info12.size(); i++)
+    for (uint32_t i = 0; i < (uint32_t)matches_info12.size(); i++)
     {
       int idx_in_2 = matches_info12[i].idx_b1;
       // Check mutual match (an image 1 keypoint must also be the nearest neighbor of its nearest neighbor)

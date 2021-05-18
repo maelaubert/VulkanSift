@@ -6,16 +6,17 @@
 
 #include <chrono>
 
-struct CommonPoint;
-
 class AbstractSiftDetector
 {
   public:
   virtual bool init() = 0;
   virtual void terminate() = 0;
-  virtual void getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
-                          std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2) = 0;
-  virtual float measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter) = 0;
+  // convert_and_copy_to_cv_format used to avoid transforming data when running runtime evaluation. Since every detector format is different
+  // the transformation changes and might be slower than other detectors. If set to false, we stop when data is available on the CPU in the
+  // detector's format but output data structures are not filled.
+  virtual void detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descs, bool convert_and_copy_to_cv_format) = 0;
+  virtual bool useFloatImage() = 0;
+  virtual ~AbstractSiftDetector() = default;
 };
 
 #endif // PERF_WRAPPER_H

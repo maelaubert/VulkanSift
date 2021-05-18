@@ -57,7 +57,7 @@ int main()
     else
     {
       // Draw only points at the SIFT position
-      for (int i = 0; i < feat_vec.size(); i++)
+      for (int i = 0; i < (int)feat_vec.size(); i++)
       {
         cv::circle(draw_frame, cv::Point(feat_vec[i].x, feat_vec[i].y), 3, cv::Scalar(0, 0, 255), 1);
       }

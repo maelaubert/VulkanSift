@@ -4,50 +4,36 @@
 
 #define PIXEL_DIST_THRESHOLD 2.5f
 
-cv::Mat getKeypointsMatchesImage(cv::Mat &in_img1, cv::Mat &in_img2, std::vector<CommonPoint> kps1, std::vector<CommonPoint> kps2)
+void readHomographyInfoFile(const std::string &file_path, std::array<float, 9> &homography)
 {
-  // Convert image 1
-  cv::Mat output_mat_rgb1 = in_img1;
+  std::ifstream info_file{file_path};
+  std::string line_data;
 
-  // Convert image 2
-  cv::Mat output_mat_rgb2 = in_img2;
-
-  // Create concatenated image (update images to have the same size)
-  int max_width = std::max(in_img1.cols, in_img2.cols);
-  int max_height = std::max(in_img1.rows, in_img2.rows);
-  cv::copyMakeBorder(output_mat_rgb1, output_mat_rgb1, 0, max_height - in_img1.rows, 0, max_width - in_img1.cols, cv::BORDER_CONSTANT,
-                     cv::Scalar(0, 0, 0));
-  cv::copyMakeBorder(output_mat_rgb2, output_mat_rgb2, 0, max_height - in_img2.rows, 0, max_width - in_img2.cols, cv::BORDER_CONSTANT,
-                     cv::Scalar(0, 0, 0));
-
-  cv::Mat concatenated_mat;
-  cv::hconcat(output_mat_rgb1, output_mat_rgb2, concatenated_mat);
-
-  srand(time(NULL));
-
-  for (std::size_t i = 0; i < kps1.size(); i++)
+  // The lines corresponds to the homography between image 1 and image 2..N
+  // Each of the 3 lines contains 3 floating point numbers to represent the 3x3 matrix (row-major)
+  for (int i = 0; i < 3; i++)
   {
-    cv::Scalar color(rand() % 255, rand() % 255, rand() % 255, rand() % 255);
-
-    // output_mat.at<cv::Vec3b>(cv::Point(kp.orig_x, kp.orig_y)) = cv::Vec3b(0,
-    // 0, 254); cv::circle(output_mat_rgb, cv::Point(kp.orig_x, kp.orig_y), 3,
-    // cv::Scalar(0.0, 0.0, 255.0), 1);
-    cv::Point im1_p(kps1.at(i).x, kps1.at(i).y);
-    cv::Point im2_origin(max_width, 0);
-    cv::Point im2_p(kps2.at(i).x, kps2.at(i).y);
-    cv::line(concatenated_mat, im1_p, im2_origin + im2_p, color, 2, cv::LINE_AA);
+    std::getline(info_file, line_data);
+    std::istringstream iss = std::istringstream{line_data};
+    iss >> homography[i * 3 + 0] >> homography[i * 3 + 1] >> homography[i * 3 + 2];
   }
+  // Release file as we have every info we need
+  info_file.close();
 
-  return concatenated_mat;
+  for (int j = 0; j < 9; j++)
+  {
+    std::cout << homography[j] << " ";
+  }
+  std::cout << std::endl;
 }
 
-void computeMetrics(const std::vector<CommonPoint> &kp_img1, const std::vector<CommonPoint> &kp_img2, const std::vector<CommonPoint> &matches_img1,
+void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<cv::KeyPoint> &kp_img2, const std::vector<CommonPoint> &matches_img1,
                     const std::vector<CommonPoint> &matches_img2, std::array<float, 9> H1to2, float &putative_match_ratio, float &precision,
-                    float &matching_score, float &recall)
+                    float &matching_score)
 {
   // Check number of valid matches (w.r.t homography)
   int cnt_inliers = 0;
-  for (int i = 0; i < matches_img1.size(); i++)
+  for (int i = 0; i < (int)matches_img1.size(); i++)
   {
     CommonPoint pt_in_img1 = matches_img1[i];
     CommonPoint pt_in_img2 = matches_img2[i];
@@ -68,8 +54,6 @@ void computeMetrics(const std::vector<CommonPoint> &kp_img1, const std::vector<C
   precision = (float)cnt_inliers / (float)matches_img1.size();
   // Precision
   matching_score = (float)cnt_inliers / (float)kp_img1.size();
-  // Recall (TODO)
-  recall = 0.f;
 
   std::cout << "putative_match_ratio: " << putative_match_ratio << std::endl;
   std::cout << "precision: " << precision << std::endl;
@@ -116,79 +100,59 @@ int main(int argc, char *argv[])
 
   //////////////////////////////////////////////////////////////////////////
   // Read Homography dataset
-  std::string path_root = "res/feature_evaluation_data/homography/";
-  std::vector<std::string> dataset_names_vec = {"bark", "bikes",  "boat",  "ceiling", "day_night", "graffiti", "leuven",
-                                                "rome", "semper", "trees", "ubc",     "venice",    "wall"};
+  std::string path_root = "res/feature_evaluation_data/";
+  std::vector<std::string> dataset_names_vec = {"bark", "bikes", "boat", "graf", "leuven", "trees", "ubc", "wall"};
   std::cout << dataset_names_vec.size() << std::endl;
 
   for (auto dataset_name : dataset_names_vec)
   {
-    std::string set_info_path = path_root + dataset_name + "/dataset.txt";
-    std::ifstream info_file{set_info_path};
-    std::string line_data;
-    std::getline(info_file, line_data); // Line 1 is comment
-    std::getline(info_file, line_data); // Line 2 is number of images in set
-    std::istringstream iss{line_data};
-    int image_number;
-    iss >> image_number;
-    std::cout << dataset_name << ": " << image_number << std::endl;
-
-    std::vector<std::string> images_path;
-
-    // Next line is a comment and the next image_number lines after that are the path to the images.
-    // The line after the image path is another comment.
-    std::getline(info_file, line_data); // Skip line
-    for (int i = 0; i < image_number; i++)
+    std::cout << "Dataset " << dataset_name << std::endl;
+    std::string img_ext = ".ppm";
+    if (dataset_name == "boat")
     {
-      std::getline(info_file, line_data); // Read image path
-      while (!std::isalnum(line_data[line_data.size() - 1]))
-      {
-        line_data = std::string{line_data.begin(), line_data.end() - 1};
-      }
-      images_path.push_back("res/" + line_data);
+      img_ext = ".pgm";
     }
-    std::getline(info_file, line_data); // Skip line
-    // The (image_number-1) final lines corresponds to the homography between image 1 and image 2..N
-    // Each line contains 9 floating point numbers to represent the 3x3 matrix (row-major)
-    std::vector<std::array<float, 9>> homographies;
-    homographies.resize(image_number - 1);
-    for (int i = 0; i < image_number - 1; i++)
+    cv::Mat img1 = cv::imread(path_root + dataset_name + "/img1" + img_ext, 0);
+    if (detector->useFloatImage())
     {
-      std::getline(info_file, line_data);
-      iss = std::istringstream{line_data};
-      iss >> homographies[i][0] >> homographies[i][1] >> homographies[i][2] >> homographies[i][3] >> homographies[i][4] >> homographies[i][5] >>
-          homographies[i][6] >> homographies[i][7] >> homographies[i][8];
-
-      for (int j = 0; j < 9; j++)
-      {
-        std::cout << homographies[i][j] << " ";
-      }
-      std::cout << std::endl;
+      img1.convertTo(img1, CV_32FC1);
     }
-    // Release file as we have every info we need
-    info_file.close();
 
-    cv::Mat img1 = cv::imread(images_path[0]);
-    for (int n = 1; n < image_number; n++)
+    std::vector<cv::KeyPoint> kp_img1;
+    cv::Mat desc_img1;
+    // Get features for image 1
+    detector->detectSIFT(img1, kp_img1, desc_img1, true);
+
+    std::array<float, 9> homography;
+    for (int n = 2; n <= 6; n++)
     {
-      std::vector<CommonPoint> kp_img1, kp_img2;
+      std::string homography_info_path = path_root + dataset_name + "/H1to" + std::to_string(n) + "p";
+      readHomographyInfoFile(homography_info_path, homography);
+
+      std::vector<cv::KeyPoint> kp_imgN;
+      cv::Mat desc_imgN;
+
+      cv::Mat imgN = cv::imread(path_root + dataset_name + "/img" + std::to_string(n) + img_ext, 0);
+      if (detector->useFloatImage())
+      {
+        imgN.convertTo(imgN, CV_32FC1);
+      }
+
+      // Get features for image N
+      detector->detectSIFT(imgN, kp_imgN, desc_imgN, true);
+
+      // Match features
       std::vector<CommonPoint> matches_img1, matches_img2;
+      matchFeatures(kp_img1, desc_img1, kp_imgN, desc_imgN, matches_img1, matches_img2, false);
 
-      cv::Mat imgN = cv::imread(images_path[n]);
-      detector->getMatches(img1, imgN, kp_img1, kp_img2, matches_img1, matches_img2);
-      cv::Mat matches_img = getKeypointsMatchesImage(img1, imgN, matches_img1, matches_img2);
-
-      float putative_match_ratio, precision, matching_score, recall;
+      float putative_match_ratio, precision, matching_score;
 
       // Get metrics
-      computeMetrics(kp_img1, kp_img2, matches_img1, matches_img2, homographies[n - 1], putative_match_ratio, precision, matching_score, recall);
+      computeMetrics(kp_img1, kp_imgN, matches_img1, matches_img2, homography, putative_match_ratio, precision, matching_score);
       // Write them to output file
       std::string res_str = dataset_name + ";" + std::to_string(1) + ";" + std::to_string(n + 1) + ";" + std::to_string(putative_match_ratio) + ";" +
-                            std::to_string(precision) + ";" + std::to_string(matching_score) + ";" + std::to_string(recall) + "\n";
+                            std::to_string(precision) + ";" + std::to_string(matching_score) + "\n";
       result_file.write(res_str.c_str(), res_str.size());
-
-      // cv::imshow("Test", matches_img);
-      // cv::waitKey(30);
     }
   }
 

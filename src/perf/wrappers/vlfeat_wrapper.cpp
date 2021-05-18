@@ -3,31 +3,10 @@
 bool VLFeatDetector::init() { return true; }
 void VLFeatDetector::terminate() {}
 
-float *VLFeatDetector::allocAndFillGreyBufferFromCvMat(cv::Mat image)
+void VLFeatDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descs, bool convert_and_copy_to_cv_format)
 {
-  int width = image.cols;
-  int height = image.rows;
-  float *image_buf = new float[width * height];
-  cv::Mat im_tmp;
-  cv::Mat img_grey(cv::Size(width, height), CV_8UC1);
-  cv::cvtColor(image, im_tmp, cv::COLOR_BGR2GRAY);
-  im_tmp.convertTo(img_grey, CV_8UC1);
-  for (int i = 0; i < width; i++)
-  {
-    for (int j = 0; j < height; j++)
-    {
-      image_buf[j * width + i] = static_cast<float>(img_grey.at<uint8_t>(cv::Point(i, j))) / 255.f;
-    }
-  }
-
-  return image_buf;
-}
-
-void detectVLFeat_SIFT(float *img_buf, int width, int height, std::vector<CommonPoint> &kpts, cv::Mat &descs)
-{
-  kpts.clear();
   std::vector<std::array<uint8_t, 128>> desc_vec;
-  VlSiftFilt *vlsift = vl_sift_new(width, height, -1, 3, -1);
+  VlSiftFilt *vlsift = vl_sift_new(image.cols, image.rows, -1, 3, -1);
   bool first_oct = true;
   double angles[4];
   float flt_desc_arr[128];
@@ -38,7 +17,7 @@ void detectVLFeat_SIFT(float *img_buf, int width, int height, std::vector<Common
     int err;
     if (first_oct)
     {
-      err = vl_sift_process_first_octave(vlsift, img_buf);
+      err = vl_sift_process_first_octave(vlsift, (float *)image.data);
       first_oct = false;
     }
     else
@@ -52,17 +31,21 @@ void detectVLFeat_SIFT(float *img_buf, int width, int height, std::vector<Common
 
     // Extract keypoints from octave
     vl_sift_detect(vlsift);
-    const VlSiftKeypoint *keypoints = vl_sift_get_keypoints(vlsift);
+    const VlSiftKeypoint *vl_keypoints = vl_sift_get_keypoints(vlsift);
     int nb_kpts = vl_sift_get_nkeypoints(vlsift);
     for (int kpt_i = 0; kpt_i < nb_kpts; kpt_i++)
     {
       // Get orientations
-      int nb_ori = vl_sift_calc_keypoint_orientations(vlsift, angles, keypoints + kpt_i);
+      int nb_ori = vl_sift_calc_keypoint_orientations(vlsift, angles, vl_keypoints + kpt_i);
       for (int ori_i = 0; ori_i < nb_ori; ori_i++)
       {
         // Get descriptors
-        vl_sift_calc_keypoint_descriptor(vlsift, flt_desc_arr, keypoints + kpt_i, angles[ori_i]);
-        kpts.push_back({keypoints[kpt_i].x, keypoints[kpt_i].y});
+        vl_sift_calc_keypoint_descriptor(vlsift, flt_desc_arr, vl_keypoints + kpt_i, angles[ori_i]);
+        if (convert_and_copy_to_cv_format)
+        {
+          keypoints.push_back(cv::KeyPoint{cv::Point2f{vl_keypoints[kpt_i].x, vl_keypoints[kpt_i].y}, 0});
+        }
+
         std::array<uint8_t, 128> desc;
         for (int i = 0; i < 128; i++)
         {
@@ -74,86 +57,15 @@ void detectVLFeat_SIFT(float *img_buf, int width, int height, std::vector<Common
   }
   vl_sift_delete(vlsift);
 
-  descs.create((int)desc_vec.size(), 128, CV_8U);
-  for (int i = 0; i < desc_vec.size(); i++)
+  if (convert_and_copy_to_cv_format)
   {
-    for (int j = 0; j < 128; j++)
+    descs.create((int)desc_vec.size(), 128, CV_8U);
+    for (int i = 0; i < (int)desc_vec.size(); i++)
     {
-      descs.at<uint8_t>(i, j) = desc_vec[i][j];
-    }
-  }
-}
-
-void VLFeatDetector::getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
-                                std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2)
-{
-  float *img1_buf = allocAndFillGreyBufferFromCvMat(image1);
-  float *img2_buf = allocAndFillGreyBufferFromCvMat(image2);
-
-  cv::Mat descs1, descs2;
-  detectVLFeat_SIFT(img1_buf, image1.cols, image1.rows, kps_img1, descs1);
-  detectVLFeat_SIFT(img2_buf, image2.cols, image2.rows, kps_img2, descs2);
-
-  delete[] img1_buf;
-  delete[] img2_buf;
-
-  // Find feature matches
-  std::vector<std::vector<cv::DMatch>> matches12, matches21;
-  auto matcher = cv::BFMatcher::create(cv::NORM_L2);
-  matcher->knnMatch(descs1, descs2, matches12, 2);
-  matcher->knnMatch(descs2, descs1, matches21, 2);
-
-  // Fill Match vector
-  matches_img1.clear();
-  matches_img2.clear();
-  for (int i = 0; i < matches12.size(); i++)
-  {
-    int idx_in_2 = matches12[i][0].trainIdx;
-    // Check mutual match
-    if (matches21[idx_in_2][0].trainIdx == i)
-    {
-      // Check Lowe's ratio in 1
-      if ((matches12[i][0].distance / matches12[i][1].distance) < LOWES_RATIO)
+      for (int j = 0; j < 128; j++)
       {
-        // Check Lowe's ratio in 2
-        if ((matches21[idx_in_2][0].distance / matches21[idx_in_2][1].distance) < LOWES_RATIO)
-        {
-          matches_img1.push_back(kps_img1[matches12[i][0].queryIdx]);
-          matches_img2.push_back(kps_img2[matches12[i][0].trainIdx]);
-        }
+        descs.at<uint8_t>(i, j) = desc_vec[i][j];
       }
     }
   }
-}
-
-float VLFeatDetector::measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter)
-{
-  std::vector<CommonPoint> kpts;
-  cv::Mat descs;
-  float *img_buf = allocAndFillGreyBufferFromCvMat(image);
-
-  for (int i = 0; i < nb_warmup_iter; i++)
-  {
-    detectVLFeat_SIFT(img_buf, image.cols, image.rows, kpts, descs);
-    std::cout << "\rWarmup " << i + 1 << "/" << nb_warmup_iter;
-  }
-  std::cout << std::endl;
-
-  float sum_duration = 0;
-  for (int i = 0; i < nb_iter; i++)
-  {
-    auto start_time = std::chrono::high_resolution_clock::now();
-    detectVLFeat_SIFT(img_buf, image.cols, image.rows, kpts, descs);
-    float duration =
-        static_cast<float>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_time).count()) / 1000.f;
-    sum_duration += duration;
-    std::cout << "\rMeasuring " << i + 1 << "/" << nb_iter;
-  }
-  std::cout << std::endl;
-
-  float mean_duration = float(sum_duration) / float(nb_iter);
-
-  delete[] img_buf;
-
-  return mean_duration;
 }

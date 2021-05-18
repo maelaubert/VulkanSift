@@ -2,18 +2,20 @@
 #define PERF_SIFTGPU_WRAPPER_H
 
 #include "perf/wrappers/wrapper.h"
+#include <vector>
+
+#include "SiftGPU/src/SiftGPU.h"
 
 class SiftGPUDetector : public AbstractSiftDetector
 {
   public:
-  bool init();
-  void terminate();
-  void getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
-                  std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2);
-  float measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter);
+  bool init() override;
+  void terminate() override;
+  void detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descs, bool convert_and_copy_to_cv_format) override;
+  bool useFloatImage() override { return false; }
 
   private:
-  uint8_t *allocAndFillGreyBufferFromCvMat(cv::Mat image);
+  SiftGPU sift;
 };
 
 #endif // PERF_SIFTGPU_WRAPPER_H

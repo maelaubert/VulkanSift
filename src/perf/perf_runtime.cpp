@@ -43,12 +43,38 @@ int main(int argc, char *argv[])
   // Prepare output file
   std::ofstream result_file{"runtime_results_" + detector_name + ".txt"};
 
-  cv::Mat image = cv::imread("res/img1.ppm");
+  cv::Mat image = cv::imread("res/img1.ppm", 0);
   cv::resize(image, image, cv::Size(640, 480));
+  if (detector->useFloatImage())
+  {
+    image.convertTo(image, CV_32FC1);
+  }
 
-  float mean_exec_time = detector->measureMeanExecutionTimeMs(image, NB_ITER_WARMUP, NB_ITER_MEAS);
+  std::vector<cv::KeyPoint> keypoints;
+  cv::Mat desc;
+
+  for (int i = 0; i < NB_ITER_WARMUP; i++)
+  {
+    detector->detectSIFT(image, keypoints, desc, false);
+    std::cout << "\rWarmup " << i + 1 << "/" << NB_ITER_WARMUP;
+  }
+  std::cout << std::endl;
+
+  float sum_duration = 0;
+  for (int i = 0; i < NB_ITER_MEAS; i++)
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    detector->detectSIFT(image, keypoints, desc, false);
+    float duration =
+        static_cast<float>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_time).count()) / 1000.f;
+    sum_duration += duration;
+    std::cout << "\rMeasuring " << i + 1 << "/" << NB_ITER_MEAS;
+  }
+  std::cout << std::endl;
+  float mean_duration = float(sum_duration) / float(NB_ITER_MEAS);
+
   // Write them to output file
-  std::string res_str = std::to_string(mean_exec_time) + " ms" + "\n";
+  std::string res_str = std::to_string(mean_duration) + " ms" + "\n";
   result_file.write(res_str.c_str(), res_str.size());
 
   detector->terminate();
