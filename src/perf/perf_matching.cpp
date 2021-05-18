@@ -62,7 +62,8 @@ void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<
 
 void printUsage()
 {
-  std::cout << "Usage: ./perf_sift_match SIFT_DETECTOR_NAME" << std::endl;
+  std::cout << "Usage 1: ./perf_sift_match SIFT_DETECTOR_NAME" << std::endl;
+  std::cout << "(for cross-detector matching you can use: ./perf_sift_match SIFT_DETECTOR_1_NAME SIFT_DETECTOR_2_NAME)" << std::endl;
   std::cout << "Available detector names: " << std::endl;
   for (auto det_name : getDetectorTypeNames())
   {
@@ -74,7 +75,7 @@ int main(int argc, char *argv[])
 {
   //////////////////////////////////////////////////////////////////////////
   // Parameter handling to get name of requested SIFT detector/matcher
-  if (argc != 2)
+  if (argc != 2 && argc != 3)
   {
     std::cout << "Error: wrong number of arguments" << std::endl;
     printUsage();
@@ -92,8 +93,27 @@ int main(int argc, char *argv[])
   //////////////////////////////////////////////////////////////////////////
   // Initialize detector from its type
   std::cout << "Initializing " << detector_name << " detector..." << std::endl;
-  std::shared_ptr<AbstractSiftDetector> detector = createDetector(detector_type);
-  detector->init();
+  std::shared_ptr<AbstractSiftDetector> detector1 = createDetector(detector_type);
+  detector1->init();
+
+  std::shared_ptr<AbstractSiftDetector> detector2 = detector1;
+
+  bool with_second_detector = false;
+  if (argc == 3 && detector_name != std::string{argv[2]})
+  {
+    std::string detector2_name{argv[2]};
+    DETECTOR_TYPE detector2_type;
+    if (!getDetectorTypeFromName(detector2_name, detector2_type))
+    {
+      std::cout << "Error: invalid name for second detector" << std::endl;
+      printUsage();
+      return -1;
+    }
+    std::cout << "Initializing " << detector_name << " detector..." << std::endl;
+    detector2 = createDetector(detector2_type);
+    detector2->init();
+    with_second_detector = true;
+  }
 
   // Prepare output file
   std::ofstream result_file{"matching_results_" + detector_name + ".txt"};
@@ -113,7 +133,7 @@ int main(int argc, char *argv[])
       img_ext = ".pgm";
     }
     cv::Mat img1 = cv::imread(path_root + dataset_name + "/img1" + img_ext, 0);
-    if (detector->useFloatImage())
+    if (detector1->useFloatImage())
     {
       img1.convertTo(img1, CV_32FC1);
     }
@@ -121,7 +141,7 @@ int main(int argc, char *argv[])
     std::vector<cv::KeyPoint> kp_img1;
     cv::Mat desc_img1;
     // Get features for image 1
-    detector->detectSIFT(img1, kp_img1, desc_img1, true);
+    detector1->detectSIFT(img1, kp_img1, desc_img1, true);
 
     std::array<float, 9> homography;
     for (int n = 2; n <= 6; n++)
@@ -133,17 +153,17 @@ int main(int argc, char *argv[])
       cv::Mat desc_imgN;
 
       cv::Mat imgN = cv::imread(path_root + dataset_name + "/img" + std::to_string(n) + img_ext, 0);
-      if (detector->useFloatImage())
+      if (detector2->useFloatImage())
       {
         imgN.convertTo(imgN, CV_32FC1);
       }
 
       // Get features for image N
-      detector->detectSIFT(imgN, kp_imgN, desc_imgN, true);
+      detector2->detectSIFT(imgN, kp_imgN, desc_imgN, true);
 
       // Match features
       std::vector<CommonPoint> matches_img1, matches_img2;
-      matchFeatures(kp_img1, desc_img1, kp_imgN, desc_imgN, matches_img1, matches_img2, false);
+      matchFeatures(img1, imgN, kp_img1, desc_img1, kp_imgN, desc_imgN, matches_img1, matches_img2, false);
 
       float putative_match_ratio, precision, matching_score;
 
@@ -156,7 +176,11 @@ int main(int argc, char *argv[])
     }
   }
 
-  detector->terminate();
+  detector1->terminate();
+  if (with_second_detector)
+  {
+    detector2->terminate();
+  }
   result_file.close();
 
   return 0;
