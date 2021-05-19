@@ -14,16 +14,21 @@ endif()
 #####################################################################################"
 # Define project options and variables
 option(VULKANSIFT_WITH_GPU_DEBUG "Use to compile VulkanSift for GPU debug" OFF)
+option(VULKANSIFT_WITH_EMBEDDED_SHADERS "Use to embed the SPIRV shader code directly inside the binary" ON)
+option(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME "Use to dynamically load the Vulkan library at runtime" ON)
 option(VULKANSIFT_BUILD_EXAMPLES "Use to build VulkanSift examples." OFF)
 option(VULKANSIFT_BUILD_PERFS "Use to build VulkanSift performance tests." OFF)
 set(VULKANSIFT_SANITIZE "" CACHE STRING "Use with value \"Address\" to build using the address sanitizer or 
     with \"Thread\" to build using the thread sanitizer. Leave empty otherwise.")
 
-
 #####################################################################################"
 # Check if compiler is Clang or GNU (avoids lots of trouble with optimization related parameters)
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     message(FATAL_ERROR "Only GNU and Clang C++ compilers are supported in this project.")
+endif()
+# Check if platform is Linux or Windows (would need MoltenVK for Mac)
+if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
+    message(FATAL_ERROR "Only Linux and Windows platforms are supported in this project.")
 endif()
 #####################################################################################
 # VulkanSift library sources
@@ -40,12 +45,23 @@ set(VULKANSIFT_LIB_SRC
 )
 
 if(VULKANSIFT_WITH_GPU_DEBUG)
-set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC}
-    # Add files used onle to provide GPU debugging/profiling capabilities
-    src/vulkansift/vkenv/vulkan_swapchain.c
-    src/vulkansift/vkenv/debug_presenter.c
-    src/vulkansift/vkenv/mini_window_xcb.c # only if using Linux
-)
+    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC}
+        # Add files used onle to provide GPU debugging/profiling capabilities
+        src/vulkansift/vkenv/vulkan_swapchain.c
+        src/vulkansift/vkenv/debug_presenter.c
+    )
+    # Add platform specific sources
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} src/vulkansift/vkenv/mini_window_xcb.c)
+    elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+        # TODO
+    endif()
+
+endif()
+
+if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
+    # if we use embedded shaders we need to add the source storing the spv to the library
+    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
 endif()
 
 set(VULKANSIFT_LIB_HEADERS
@@ -86,52 +102,41 @@ endif()
 add_library(vulkansift STATIC ${VULKANSIFT_LIB_SRC})
 target_compile_options(vulkansift PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
-set_target_properties(vulkansift PROPERTIES
-    CXX_STANDARD 14
-    CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS NO
-)
 set_target_properties(vulkansift PROPERTIES PUBLIC_HEADER "${VULKANSIFT_LIB_HEADERS}")
-
 target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>)
-#target_compile_definitions(vulkansift PRIVATE VK_NO_PROTOTYPES=1)
 
-if(VULKANSIFT_WITH_GPU_DEBUG)
-target_compile_definitions(vulkansift PRIVATE VKSIFT_GPU_DEBUG=1 VK_USE_PLATFORM_XCB_KHR=1)
+if(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME)
+    target_compile_definitions(vulkansift PRIVATE VK_NO_PROTOTYPES=1)
+    target_link_libraries(vulkansift dl)
+else()
+    target_link_libraries(vulkansift vulkan)
 endif()
 
-target_link_libraries(vulkansift
-    dl xcb vulkan
-)
+if(VULKANSIFT_WITH_GPU_DEBUG)
+    target_compile_definitions(vulkansift PRIVATE VKSIFT_GPU_DEBUG=1)
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        # Only xcb is supported in Linux for now
+        target_link_libraries(vulkansift xcb)
+        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XCB_KHR=1)
+    elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+        # TODO
+    endif()
+endif()
 
-# Compile shaders if modified and store them in build/shaders/
-set(VULKANSIFT_LIB_SHADERS_SPV "")
-foreach(shader_path ${VULKANSIFT_LIB_SHADERS})
-
-    get_filename_component(shader_filename ${shader_path} NAME)
-    message(${shader_filename})
-
-    set(output_file ${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader_filename}.spv)
-    message(${output_file})
-    add_custom_command(
-        OUTPUT ${output_file}
-        COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/shaders
-        COMMAND glslc ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path} -g -o ${output_file}
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path}
-        COMMENT "Building ${shader_filename}.spv --> ${CMAKE_CURRENT_SOURCE_DIR}/${shader_path} -g -o ${output_file}"
-    )
-    message(STATUS "Generating build command for ${shader_filename}.spv")
-    set(VULKANSIFT_LIB_SHADERS_SPV ${VULKANSIFT_LIB_SHADERS_SPV} ${output_file} )
-endforeach()
-add_custom_target(vulkansift_shaders ALL DEPENDS ${VULKANSIFT_LIB_SHADERS_SPV})
-add_dependencies(vulkansift vulkansift_shaders)
-
+# Add dependencies on shader files
+include("ShaderUtils.cmake")
+if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
+    addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
+    target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
+else()
+    addSpvShaderFilesDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}")
+endif()
 #####################################################################################
 
 
 
 if(VULKANSIFT_BUILD_EXAMPLES)
-message("Examples will be built")
+message(STATUS "Examples will be built")
 find_package(OpenCV REQUIRED)
 # Example program that read an image, detect and draw the SIFT features
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp src/examples/test_utils.cpp)
@@ -165,7 +170,7 @@ endif(VULKANSIFT_WITH_GPU_DEBUG)
 endif(VULKANSIFT_BUILD_EXAMPLES)
 
 if(VULKANSIFT_BUILD_PERFS)
-message("Performance tests will be built")
+message(STATUS "Performance tests will be built")
 # Add perf executables
 find_package(OpenCV REQUIRED)
 set(VULKAN_SIFT_PERFS_COMMON_SRC 
@@ -192,7 +197,7 @@ set(VULKAN_SIFT_PERFS_COMMON_LIBS
     ${OpenCV_LIBS}
     ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/vlfeat/lib/libvlfeat.a
     ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/SiftGPU/lib/libsift_gpu.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/popsift/lib/libpopsift.so.1.0.0
+    ${CMAKE_CURRENT_SOURCE_DIR}/external_libs/popsift/lib/libpopsift.so
 )
 add_executable(perf_sift_match src/perf/perf_matching.cpp ${VULKAN_SIFT_PERFS_COMMON_SRC})
 target_compile_options(perf_sift_match PRIVATE "-O3;-fopenmp")
@@ -212,7 +217,31 @@ endif()
 
 # Copy image resource directory to build folder if examples or perf scripts are built
 if(VULKANSIFT_BUILD_EXAMPLES OR VULKANSIFT_BUILD_PERFS)
-add_custom_command(TARGET vulkansift POST_BUILD
-                   COMMAND ${CMAKE_COMMAND} -E copy_directory
-                       ${CMAKE_SOURCE_DIR}/res ${CMAKE_CURRENT_BINARY_DIR}/res)
+
+# Add generation information for resource files in build folder
+file(GLOB_RECURSE RES_FILE_REL_PATHS RELATIVE ${CMAKE_SOURCE_DIR} res/*)
+message(STATUS "Generating copy commands for resource files")
+set(VULKANSIFT_RES_FILES "")
+foreach(res_file_rel_path ${RES_FILE_REL_PATHS})
+    set(output_file ${CMAKE_CURRENT_BINARY_DIR}/${res_file_rel_path})
+    add_custom_command(
+        OUTPUT ${output_file}
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/${res_file_rel_path} ${CMAKE_CURRENT_BINARY_DIR}/${res_file_rel_path}
+        DEPENDS ${CMAKE_SOURCE_DIR}/${res_file_rel_path}
+        COMMENT "Copying resource ${res_file_rel_path} to build folder"
+    )
+    set(VULKANSIFT_RES_FILES ${VULKANSIFT_RES_FILES} ${output_file} )
+endforeach()
+
+# custom empty target that depends on all the resource files in the build folder
+add_custom_target(vulkansift_res_copy ALL DEPENDS ${VULKANSIFT_RES_FILES}) 
+# Add resource dependency to all test executables
+add_dependencies(test_sift_detect vulkansift_res_copy)
+add_dependencies(test_sift_match vulkansift_res_copy)
+add_dependencies(test_sift_show_pyr vulkansift_res_copy)
+add_dependencies(test_sift_gpu_debug vulkansift_res_copy)
+# Add resource dependency to all perf executables
+add_dependencies(perf_sift_match vulkansift_res_copy)
+add_dependencies(perf_sift_runtime vulkansift_res_copy)
+
 endif()
