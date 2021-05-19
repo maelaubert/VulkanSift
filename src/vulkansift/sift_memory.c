@@ -41,7 +41,6 @@ void updateBufferInfo(vksift_SiftMemory memory, uint32_t buffer_idx)
 {
   // This function is called before computing SIFT results on a new image with this buffer idx as a target buffer
   // The buffer is always "not busy" and resetted to non-packed in this case
-  memory->sift_buffers_info[buffer_idx].is_busy = false;
   memory->sift_buffers_info[buffer_idx].is_packed = false;
   // Set last input resolution used to the pyramid input resolution
   memory->sift_buffers_info[buffer_idx].curr_input_width = memory->curr_input_image_width;
@@ -543,22 +542,11 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     return false;
   }
 
-  // Create the SIFT buffer fences (created as signaled, signaled means not currently used)
-  res = true;
+  // Create the transfer fence (created as signaled, signaled means not currently used)
   VkFenceCreateInfo fence_create_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = NULL, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
-  for (uint32_t i = 0; i < memory->nb_sift_buffer; i++)
+  if (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->transfer_fence) != VK_SUCCESS)
   {
-    res = res && (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->sift_buffer_fence_arr[i]) == VK_SUCCESS);
-  }
-  if (!res)
-  {
-    logError(LOG_TAG, "An error occured when creating the SIFT buffer fences");
-    return false;
-  }
-  // Create the pyramid image transfer fence (created as signaled, signaled means not currently used)
-  if (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->pyr_image_transfer_fence) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "An error occured when creating the pyramid image transfer fence");
+    logError(LOG_TAG, "An error occured when creating the transfer fence");
     return false;
   }
 
@@ -656,17 +644,15 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   // Allocate Vulkan object lists (and set to NULL)
   memory->sift_buffer_arr = (VkBuffer *)malloc(sizeof(VkBuffer) * memory->nb_sift_buffer);
   memory->sift_buffer_memory_arr = (VkDeviceMemory *)malloc(sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
-  memory->sift_buffer_fence_arr = (VkFence *)malloc(sizeof(VkFence) * memory->nb_sift_buffer);
   memset(memory->sift_buffer_arr, 0, sizeof(VkBuffer) * memory->nb_sift_buffer);
   memset(memory->sift_buffer_memory_arr, 0, sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
-  memset(memory->sift_buffer_fence_arr, 0, sizeof(VkFence) * memory->nb_sift_buffer);
 
   memory->sift_count_staging_buffer_arr = (VkBuffer *)malloc(sizeof(VkBuffer) * memory->nb_sift_buffer);
   memory->sift_count_staging_buffer_memory_arr = (VkDeviceMemory *)malloc(sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
   memory->sift_count_staging_buffer_ptr_arr = (void **)malloc(sizeof(void *) * memory->nb_sift_buffer);
   memset(memory->sift_count_staging_buffer_arr, 0, sizeof(VkBuffer) * memory->nb_sift_buffer);
   memset(memory->sift_count_staging_buffer_memory_arr, 0, sizeof(VkDeviceMemory) * memory->nb_sift_buffer);
-  memset(memory->sift_count_staging_buffer_ptr_arr, 0, sizeof(VkFence) * memory->nb_sift_buffer);
+  memset(memory->sift_count_staging_buffer_ptr_arr, 0, sizeof(void *) * memory->nb_sift_buffer);
 
   memory->blur_tmp_image_arr = (VkImage *)malloc(sizeof(VkImage) * memory->max_nb_octaves);
   memory->blur_tmp_image_view_arr = (VkImageView *)malloc(sizeof(VkImageView) * memory->max_nb_octaves);
@@ -782,7 +768,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
 
     VK_NULL_SAFE_DELETE(memory->sift_buffer_arr[i], vkDestroyBuffer(memory->device->device, memory->sift_buffer_arr[i], NULL));
     VK_NULL_SAFE_DELETE(memory->sift_buffer_memory_arr[i], vkFreeMemory(memory->device->device, memory->sift_buffer_memory_arr[i], NULL));
-    VK_NULL_SAFE_DELETE(memory->sift_buffer_fence_arr[i], vkDestroyFence(memory->device->device, memory->sift_buffer_fence_arr[i], NULL));
   }
   VK_NULL_SAFE_DELETE(memory->sift_staging_buffer, vkDestroyBuffer(memory->device->device, memory->sift_staging_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->image_staging_buffer, vkDestroyBuffer(memory->device->device, memory->image_staging_buffer, NULL));
@@ -825,7 +810,7 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   VK_NULL_SAFE_DELETE(memory->output_image, vkDestroyImage(memory->device->device, memory->output_image, NULL));
   VK_NULL_SAFE_DELETE(memory->input_image_memory, vkFreeMemory(memory->device->device, memory->input_image_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->output_image_memory, vkFreeMemory(memory->device->device, memory->output_image_memory, NULL));
-  VK_NULL_SAFE_DELETE(memory->pyr_image_transfer_fence, vkDestroyFence(memory->device->device, memory->pyr_image_transfer_fence, NULL));
+  VK_NULL_SAFE_DELETE(memory->transfer_fence, vkDestroyFence(memory->device->device, memory->transfer_fence, NULL));
 
   // Destroy command pool
   if (memory->device->async_transfer_available)
@@ -860,7 +845,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
   }
   free(memory->indirect_oridesc_offset_arr);
   free(memory->sift_buffers_info);
-  free(memory->sift_buffer_fence_arr);
   free(memory->octave_resolutions);
 
   // Releave vksift_Memory memory
@@ -993,8 +977,7 @@ static bool pack_BufferMemory(vksift_SiftMemory memory, const uint32_t target_bu
   }
 
   // Reset buffer fence
-  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
-
+  vkResetFences(memory->device->device, 1, &memory->transfer_fence);
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .pNext = NULL,
                               .waitSemaphoreCount = 0,
@@ -1009,12 +992,12 @@ static bool pack_BufferMemory(vksift_SiftMemory memory, const uint32_t target_bu
   {
     target_queue = memory->async_transfer_queue;
   }
-  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->transfer_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit the GPU->GPU (packing) SIFT buffer transfer command buffer");
     return false;
   }
-  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  if (vkWaitForFences(memory->device->device, 1, &memory->transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Error when waiting for GPU->GPU (packing) SIFT buffer transfer to complete");
     return false;
@@ -1130,7 +1113,7 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
   }
 
   // Reset buffer fence
-  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
+  vkResetFences(memory->device->device, 1, &memory->transfer_fence);
 
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .pNext = NULL,
@@ -1146,12 +1129,12 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
   {
     target_queue = memory->async_transfer_queue;
   }
-  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->transfer_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit the GPU->CPU SIFT buffer transfer command buffer");
     return false;
   }
-  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  if (vkWaitForFences(memory->device->device, 1, &memory->transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Error when waiting for GPU->CPU SIFT buffer transfer to complete");
     return false;
@@ -1216,7 +1199,7 @@ bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint3
   }
 
   // Reset buffer fence
-  vkResetFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx]);
+  vkResetFences(memory->device->device, 1, &memory->transfer_fence);
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .pNext = NULL,
                               .waitSemaphoreCount = 0,
@@ -1231,12 +1214,12 @@ bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint3
   {
     target_queue = memory->async_transfer_queue;
   }
-  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->sift_buffer_fence_arr[target_buffer_idx]) != VK_SUCCESS)
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->transfer_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit the CPU->GPU SIFT buffer transfer command buffer");
     return false;
   }
-  if (vkWaitForFences(memory->device->device, 1, &memory->sift_buffer_fence_arr[target_buffer_idx], VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  if (vkWaitForFences(memory->device->device, 1, &memory->transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Error when waiting for CPU->GPU SIFT buffer transfer to complete");
     return false;
@@ -1317,8 +1300,8 @@ bool vksift_Memory_copyPyramidImageFromGPU(vksift_SiftMemory memory, const uint8
     return false;
   }
 
-  // Reset pyramid transfer fence
-  vkResetFences(memory->device->device, 1, &memory->pyr_image_transfer_fence);
+  // Reset transfer fence
+  vkResetFences(memory->device->device, 1, &memory->transfer_fence);
 
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .pNext = NULL,
@@ -1334,12 +1317,12 @@ bool vksift_Memory_copyPyramidImageFromGPU(vksift_SiftMemory memory, const uint8
   {
     target_queue = memory->async_transfer_queue;
   }
-  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->pyr_image_transfer_fence) != VK_SUCCESS)
+  if (vkQueueSubmit(target_queue, 1, &submit_info, memory->transfer_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit the GPU->CPU pyramid image transfer command buffer");
     return false;
   }
-  if (vkWaitForFences(memory->device->device, 1, &memory->pyr_image_transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+  if (vkWaitForFences(memory->device->device, 1, &memory->transfer_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Error when waiting for GPU->CPU pyramid image transfer to complete");
     return false;

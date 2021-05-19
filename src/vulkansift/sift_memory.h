@@ -6,7 +6,6 @@
 
 typedef struct
 {
-  bool is_busy;
   bool is_packed;
   uint32_t nb_stored_feats; // only available if is_packed is true
 
@@ -34,6 +33,8 @@ typedef struct vksift_SiftMemory_T
   VkCommandPool async_transfer_command_pool;
   VkCommandBuffer transfer_command_buffer;
 
+  VkFence transfer_fence;
+
   // SIFT buffers
 
   // Info defining how the data is arranged inside the buffer
@@ -51,13 +52,11 @@ typedef struct vksift_SiftMemory_T
   VkBuffer sift_staging_buffer;
   VkDeviceMemory sift_staging_buffer_memory;
   void *sift_staging_buffer_ptr;
-  VkFence *sift_buffer_fence_arr;
 
   // Pyramid objects
   VkBuffer image_staging_buffer;
   VkDeviceMemory image_staging_buffer_memory;
   void *image_staging_buffer_ptr;
-  VkFence pyr_image_transfer_fence;
 
   VkImage input_image;
   VkImageView input_image_view;

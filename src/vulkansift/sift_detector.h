@@ -24,7 +24,6 @@ typedef struct vksift_SiftDetector_T
   VkCommandPool async_transfer_command_pool;
 
   VkCommandBuffer detection_command_buffer;
-  VkCommandBuffer end_of_detection_command_buffer;
   VkCommandBuffer acquire_buffer_ownership_command_buffer;
   VkCommandBuffer release_buffer_ownership_command_buffer;
 
@@ -34,7 +33,6 @@ typedef struct vksift_SiftDetector_T
   VkFence end_of_detection_fence;
   VkSemaphore end_of_detection_semaphore;
   VkSemaphore buffer_ownership_released_by_transfer_semaphore;
-  VkSemaphore buffer_ownership_acquired_by_transfer_semaphore;
 
   bool debug_marker_supported;
   PFN_vkCmdDebugMarkerBeginEXT vkCmdDebugMarkerBeginEXT;

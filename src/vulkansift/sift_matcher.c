@@ -71,16 +71,6 @@ static bool allocateCommandBuffers(vksift_SiftMatcher matcher)
     logError(LOG_TAG, "Failed to allocate the matching command buffe");
     return false;
   }
-  if (vkAllocateCommandBuffers(matcher->dev->device, &allocate_info, &matcher->end_of_buffer_A_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to allocate the end-of-buffer-A command buffer");
-    return false;
-  }
-  if (vkAllocateCommandBuffers(matcher->dev->device, &allocate_info, &matcher->end_of_buffer_B_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to allocate the end-of-buffer-B command buffer");
-    return false;
-  }
 
   // If the async tranfer queue is available the SIFT buffers are owned by the transfer queue family
   // in this case we need to release this ownership from the transfer queue before using the buffers in the general purpose queue
@@ -197,8 +187,7 @@ static bool setupSyncObjects(vksift_SiftMatcher matcher)
 
   if (matcher->dev->async_transfer_available)
   {
-    if (vkCreateSemaphore(matcher->dev->device, &semaphore_create_info, NULL, &matcher->buffer_ownership_released_by_transfer_semaphore) != VK_SUCCESS ||
-        vkCreateSemaphore(matcher->dev->device, &semaphore_create_info, NULL, &matcher->buffer_ownership_acquired_by_transfer_semaphore) != VK_SUCCESS)
+    if (vkCreateSemaphore(matcher->dev->device, &semaphore_create_info, NULL, &matcher->buffer_ownership_released_by_transfer_semaphore) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to create Vulkan semaphores for async transfer queue buffer ownership transfers");
       return false;
@@ -307,20 +296,6 @@ static void recBufferOwnershipTransferCmds(vksift_SiftMatcher matcher, VkCommand
 static bool recordCommandBuffers(vksift_SiftMatcher matcher)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
-
-  // Write the empty end-of-buffer-A/B command buffers used to signal that the resources are not used by the GPU anymore
-  if (vkBeginCommandBuffer(matcher->end_of_buffer_A_command_buffer, &begin_info) != VK_SUCCESS ||
-      vkEndCommandBuffer(matcher->end_of_buffer_A_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to record end-of-buffer-A command buffer");
-    return false;
-  }
-  if (vkBeginCommandBuffer(matcher->end_of_buffer_B_command_buffer, &begin_info) != VK_SUCCESS ||
-      vkEndCommandBuffer(matcher->end_of_buffer_B_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to record end-of-buffer-B command buffer");
-    return false;
-  }
 
   /////////////////////////////////////////////////////
   // If async transfer queue is used, record ownership transfer command buffers
@@ -438,8 +413,6 @@ bool vksift_dispatchSiftMatching(vksift_SiftMatcher matcher, const uint32_t targ
   recordCommandBuffers(matcher);
 
   // Mark the buffers as busy/GPU locked
-  vkResetFences(matcher->dev->device, 1, &matcher->mem->sift_buffer_fence_arr[matcher->curr_buffer_A_idx]);
-  vkResetFences(matcher->dev->device, 1, &matcher->mem->sift_buffer_fence_arr[matcher->curr_buffer_B_idx]);
   vkResetFences(matcher->dev->device, 1, &matcher->end_of_matching_fence);
 
   VkPipelineStageFlags wait_dst_transfer_bit_stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -482,7 +455,8 @@ bool vksift_dispatchSiftMatching(vksift_SiftMatcher matcher, const uint32_t targ
   submit_info.pCommandBuffers = &matcher->matching_command_buffer;
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores = &matcher->end_of_matching_semaphore;
-  if (vkQueueSubmit(matcher->general_queue, 1, &submit_info, matcher->end_of_matching_fence) != VK_SUCCESS)
+  VkFence match_submit_fence = matcher->dev->async_transfer_available ? NULL : matcher->end_of_matching_fence;
+  if (vkQueueSubmit(matcher->general_queue, 1, &submit_info, match_submit_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit matching command buffer");
     return false;
@@ -496,49 +470,13 @@ bool vksift_dispatchSiftMatching(vksift_SiftMatcher matcher, const uint32_t targ
     submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &matcher->acquire_buffer_ownership_command_buffer;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &matcher->buffer_ownership_acquired_by_transfer_semaphore;
-    if (vkQueueSubmit(matcher->async_ownership_transfer_queue, 1, &submit_info, NULL) != VK_SUCCESS)
+    submit_info.signalSemaphoreCount = 0;
+    submit_info.pSignalSemaphores = NULL;
+    if (vkQueueSubmit(matcher->async_ownership_transfer_queue, 1, &submit_info, matcher->end_of_matching_fence) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to submit ownership-release command buffer on async transfer queue");
       return false;
     }
-  }
-
-  // Final command buffers (used only to signal buffer-related fences)
-  if (matcher->dev->async_transfer_available)
-  {
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &matcher->buffer_ownership_acquired_by_transfer_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
-  }
-  else
-  {
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &matcher->end_of_matching_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
-  }
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &matcher->end_of_buffer_A_command_buffer;
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores = &matcher->end_of_empty_buffer_semaphore;
-  if (vkQueueSubmit(matcher->general_queue, 1, &submit_info, matcher->mem->sift_buffer_fence_arr[matcher->curr_buffer_A_idx]) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to submit command buffer");
-    return false;
-  }
-
-  submit_info.waitSemaphoreCount = 1;
-  submit_info.pWaitSemaphores = &matcher->end_of_empty_buffer_semaphore;
-  submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &matcher->end_of_buffer_B_command_buffer;
-  submit_info.signalSemaphoreCount = 0;
-  submit_info.pSignalSemaphores = NULL;
-  if (vkQueueSubmit(matcher->general_queue, 1, &submit_info, matcher->mem->sift_buffer_fence_arr[matcher->curr_buffer_B_idx]) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to submit command buffer");
-    return false;
   }
 
   return true;
@@ -558,8 +496,6 @@ void vksift_destroySiftMatcher(vksift_SiftMatcher *matcher_ptr)
   {
     VK_NULL_SAFE_DELETE(matcher->buffer_ownership_released_by_transfer_semaphore,
                         vkDestroySemaphore(matcher->dev->device, matcher->buffer_ownership_released_by_transfer_semaphore, NULL));
-    VK_NULL_SAFE_DELETE(matcher->buffer_ownership_acquired_by_transfer_semaphore,
-                        vkDestroySemaphore(matcher->dev->device, matcher->buffer_ownership_acquired_by_transfer_semaphore, NULL));
   }
 
   // Destroy command pools

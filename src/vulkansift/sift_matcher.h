@@ -22,8 +22,6 @@ typedef struct vksift_SiftMatcher_T
   VkCommandPool async_transfer_command_pool;
 
   VkCommandBuffer matching_command_buffer;
-  VkCommandBuffer end_of_buffer_A_command_buffer;
-  VkCommandBuffer end_of_buffer_B_command_buffer;
   VkCommandBuffer acquire_buffer_ownership_command_buffer;
   VkCommandBuffer release_buffer_ownership_command_buffer;
 
@@ -32,7 +30,6 @@ typedef struct vksift_SiftMatcher_T
   VkSemaphore end_of_matching_semaphore;
   VkSemaphore end_of_empty_buffer_semaphore;
   VkSemaphore buffer_ownership_released_by_transfer_semaphore;
-  VkSemaphore buffer_ownership_acquired_by_transfer_semaphore;
 
   bool debug_marker_supported;
   PFN_vkCmdDebugMarkerBeginEXT vkCmdDebugMarkerBeginEXT;

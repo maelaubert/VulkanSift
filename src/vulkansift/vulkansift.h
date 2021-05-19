@@ -8,7 +8,7 @@
 
 bool vksift_loadVulkan();
 void vksift_unloadVulkan();
-void vksift_getAvailableGPUs(uint32_t *gpu_count, char *gpu_names[256]);
+void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names);
 void vksift_setLogLevel(vksift_LogLevel level);
 
 typedef struct vksift_Instance_T *vksift_Instance;
@@ -27,6 +27,9 @@ void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, 
 void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B);
 uint32_t vksift_getMatchesNumber(vksift_Instance instance);
 void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
+
+// Get the buffer availability status. Return true if the GPU is not using the buffer for a detection/matching task, false otherwise.
+bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id);
 
 // WARNING | Only implemented when the library was build with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
 //         | Return false and log a warning if this is not the case.

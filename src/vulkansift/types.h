@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef char VKSIFT_GPU_NAME[256];
+
 typedef struct
 {
   float x; // (x,y) if the keypoint position in the input image

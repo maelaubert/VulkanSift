@@ -46,13 +46,12 @@ bool vksift_loadVulkan()
   instance_config.instance_extensions = instance_extensions;
 #endif
 #endif
-
   return vkenv_createInstance(&instance_config);
 }
 
 void vksift_unloadVulkan() { vkenv_destroyInstance(); }
 
-void vksift_getAvailableGPUs(uint32_t *gpu_count, char *gpu_names[256])
+void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names)
 {
   if (gpu_names == NULL)
   {
@@ -339,6 +338,26 @@ bool vksift_presentDebugFrame(vksift_Instance instance)
 #endif
 }
 
+bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id)
+{
+  if (vkGetFenceStatus(instance->vulkan_device->device, instance->sift_detector->end_of_detection_fence) == VK_NOT_READY &&
+      gpu_buffer_id == instance->sift_detector->curr_buffer_idx)
+  {
+    // Detection is running and will fill the buffer
+    return false;
+  }
+  else if (vkGetFenceStatus(instance->vulkan_device->device, instance->sift_matcher->end_of_matching_fence) == VK_NOT_READY &&
+           (gpu_buffer_id == instance->sift_matcher->curr_buffer_A_idx || gpu_buffer_id == instance->sift_matcher->curr_buffer_B_idx))
+  {
+    // Matcher is running and uses the buffer
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id)
 {
@@ -348,9 +367,8 @@ void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, 
     abort();
   }
 
-  // If a GPU task is currently using the buffer, wait for it to be available
-  // If a detection is currently running, wait for it to end
-  VkFence fences[2] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id], instance->sift_detector->end_of_detection_fence};
+  // If a detection or matching pipeline is running, we wait for it to end
+  VkFence fences[2] = {instance->sift_detector->end_of_detection_fence, instance->sift_matcher->end_of_matching_fence};
   vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
 
   // Prepare memory for input resolution and update target buffer structure
@@ -374,8 +392,11 @@ uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_b
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
-  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
-  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+  if (!vksift_isBufferAvailable(instance, gpu_buffer_id))
+  {
+    VkFence fences[2] = {instance->sift_detector->end_of_detection_fence, instance->sift_matcher->end_of_matching_fence};
+    vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
+  }
 
   uint32_t feat_count = 0;
   if (!vksift_Memory_getBufferFeatureCount(instance->sift_memory, gpu_buffer_id, &feat_count))
@@ -394,8 +415,11 @@ void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
-  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
-  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+  if (!vksift_isBufferAvailable(instance, gpu_buffer_id))
+  {
+    VkFence fences[2] = {instance->sift_detector->end_of_detection_fence, instance->sift_matcher->end_of_matching_fence};
+    vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
+  }
 
   if (!vksift_Memory_copyBufferFeaturesFromGPU(instance->sift_memory, gpu_buffer_id, feats_ptr))
   {
@@ -413,8 +437,11 @@ void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, 
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
-  VkFence fences[1] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id]};
-  vkWaitForFences(instance->vulkan_device->device, 1, fences, VK_TRUE, UINT64_MAX);
+  if (!vksift_isBufferAvailable(instance, gpu_buffer_id))
+  {
+    VkFence fences[2] = {instance->sift_detector->end_of_detection_fence, instance->sift_matcher->end_of_matching_fence};
+    vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
+  }
 
   if (!vksift_Memory_copyBufferFeaturesToGPU(instance->sift_memory, gpu_buffer_id, feats_ptr, nb_feats))
   {
@@ -431,10 +458,9 @@ void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, ui
     abort();
   }
 
-  // If a GPU task is currently using the buffers or the matching pipeline, wait for them to be available
-  VkFence fences[3] = {instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id_A], instance->sift_memory->sift_buffer_fence_arr[gpu_buffer_id_B],
-                       instance->sift_matcher->end_of_matching_fence};
-  vkWaitForFences(instance->vulkan_device->device, 3, fences, VK_TRUE, UINT64_MAX);
+  // If a detection or matching pipeline is running, we wait for it to end
+  VkFence fences[2] = {instance->sift_detector->end_of_detection_fence, instance->sift_matcher->end_of_matching_fence};
+  vkWaitForFences(instance->vulkan_device->device, 2, fences, VK_TRUE, UINT64_MAX);
 
   if (vksift_prepareSiftMemoryForMatching(instance->sift_memory, gpu_buffer_id_A, gpu_buffer_id_B))
   {

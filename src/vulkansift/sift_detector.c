@@ -178,11 +178,6 @@ static bool allocateCommandBuffers(vksift_SiftDetector detector)
     logError(LOG_TAG, "Failed to allocate the detection command buffe");
     return false;
   }
-  if (vkAllocateCommandBuffers(detector->dev->device, &allocate_info, &detector->end_of_detection_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to allocate the end-of-detection command buffer");
-    return false;
-  }
 
   // If the async tranfer queue is available the SIFT buffers are owned by the transfer queue family
   // in this case we need to release this ownership from the transfer queue before using the buffers in the general purpose queue
@@ -650,10 +645,9 @@ static bool setupSyncObjects(vksift_SiftDetector detector)
 
   if (detector->dev->async_transfer_available)
   {
-    if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->buffer_ownership_released_by_transfer_semaphore) != VK_SUCCESS ||
-        vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->buffer_ownership_acquired_by_transfer_semaphore) != VK_SUCCESS)
+    if (vkCreateSemaphore(detector->dev->device, &semaphore_create_info, NULL, &detector->buffer_ownership_released_by_transfer_semaphore) != VK_SUCCESS)
     {
-      logError(LOG_TAG, "Failed to create Vulkan semaphores for async transfer queue buffer ownership transfers");
+      logError(LOG_TAG, "Failed to create Vulkan semaphore for async transfer queue buffer ownership transfer");
       return false;
     }
   }
@@ -1316,14 +1310,6 @@ static bool recordCommandBuffers(vksift_SiftDetector detector)
 {
   VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0, .pInheritanceInfo = NULL};
 
-  // Write the empty end-of-detection command buffer used to signal that the detection work is done
-  if (vkBeginCommandBuffer(detector->end_of_detection_command_buffer, &begin_info) != VK_SUCCESS ||
-      vkEndCommandBuffer(detector->end_of_detection_command_buffer) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to record end-of-detection command buffer");
-    return false;
-  }
-
   /////////////////////////////////////////////////////
   // If async transfer queue is used, record ownership transfer command buffers
   /////////////////////////////////////////////////////
@@ -1480,15 +1466,13 @@ bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t t
     // logError(LOG_TAG, "rewrite stuff");
   }
 
-  // Mark the buffer as busy/GPU locked
-  vkResetFences(detector->dev->device, 1, &detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]);
+  // Mark the detection pipeline as busy/GPU locked
   vkResetFences(detector->dev->device, 1, &detector->end_of_detection_fence);
 
   VkPipelineStageFlags wait_dst_transfer_bit_stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
   VkPipelineStageFlags wait_dst_compute_shader_bit_stage_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
   VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = NULL};
-
   if (detector->dev->async_transfer_available)
   {
     // Transfer SIFT buffer ownership for the detection
@@ -1524,7 +1508,8 @@ bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t t
   submit_info.pCommandBuffers = &detector->detection_command_buffer;
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores = &detector->end_of_detection_semaphore;
-  if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detector->mem->sift_buffer_fence_arr[detector->curr_buffer_idx]) != VK_SUCCESS)
+  VkFence detect_submit_fence = detector->dev->async_transfer_available ? NULL : detector->end_of_detection_fence;
+  if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detect_submit_fence) != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to submit detection command buffer");
     return false;
@@ -1538,36 +1523,13 @@ bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t t
     submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &detector->acquire_buffer_ownership_command_buffer;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &detector->buffer_ownership_acquired_by_transfer_semaphore;
-    if (vkQueueSubmit(detector->async_ownership_transfer_queue, 1, &submit_info, NULL) != VK_SUCCESS)
+    submit_info.signalSemaphoreCount = 0;
+    submit_info.pSignalSemaphores = NULL;
+    if (vkQueueSubmit(detector->async_ownership_transfer_queue, 1, &submit_info, detector->end_of_detection_fence) != VK_SUCCESS)
     {
       logError(LOG_TAG, "Failed to submit ownership-release command buffer on async transfer queue");
       return false;
     }
-  }
-
-  // Final command buffer (used only to signal the end-of-detection fence)
-  if (detector->dev->async_transfer_available)
-  {
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &detector->buffer_ownership_acquired_by_transfer_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
-  }
-  else
-  {
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &detector->end_of_detection_semaphore;
-    submit_info.pWaitDstStageMask = &wait_dst_transfer_bit_stage_mask;
-  }
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &detector->end_of_detection_command_buffer;
-  submit_info.signalSemaphoreCount = 0;
-  submit_info.pSignalSemaphores = NULL;
-  if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detector->end_of_detection_fence) != VK_SUCCESS)
-  {
-    logError(LOG_TAG, "Failed to submit command buffer");
-    return false;
   }
 
   return true;
@@ -1589,8 +1551,6 @@ void vksift_destroySiftDetector(vksift_SiftDetector *detector_ptr)
   {
     VK_NULL_SAFE_DELETE(detector->buffer_ownership_released_by_transfer_semaphore,
                         vkDestroySemaphore(detector->dev->device, detector->buffer_ownership_released_by_transfer_semaphore, NULL));
-    VK_NULL_SAFE_DELETE(detector->buffer_ownership_acquired_by_transfer_semaphore,
-                        vkDestroySemaphore(detector->dev->device, detector->buffer_ownership_acquired_by_transfer_semaphore, NULL));
   }
 
   // Destroy command pools
