@@ -124,7 +124,7 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
 endif()
 
 # Add dependencies on shader files
-include("ShaderUtils.cmake")
+include("cmake/ShaderUtils.cmake")
 if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
     addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
     target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
