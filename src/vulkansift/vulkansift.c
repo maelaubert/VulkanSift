@@ -6,7 +6,7 @@
 #include "vulkansift/vkenv/vulkan_utils.h"
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
 #include "vulkansift/vkenv/debug_presenter.h"
-#include "vulkansift/vkenv/mini_window.h"
+#include "vulkansift/vkenv/vulkan_surface.h"
 #endif
 
 // vksift
@@ -20,7 +20,7 @@
 
 static const char LOG_TAG[] = "VulkanSift";
 
-static vksift_Config vksift_Config_Default = { .input_image_max_size = 1920u * 1080u,
+static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 1080u,
                                               .sift_buffer_count = 2u, // minimum number of buffer to support the feature matching function
                                               .max_nb_sift_per_buffer = 100000u,
                                               .use_input_upsampling = true, // provide the best results (higher processing time)
@@ -34,7 +34,7 @@ static vksift_Config vksift_Config_Default = { .input_image_max_size = 1920u * 1
                                               .descriptor_format = VKSIFT_DESCRIPTOR_FORMAT_UBC, // compatibility with OpenCV and SiftGPU
                                               .gpu_device_index = -1,                            // GPU auto-selection
                                               .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
-                                              .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32 };
+                                              .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32};
 
 vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
 
@@ -59,7 +59,7 @@ bool vksift_loadVulkan()
   const char *instance_extensions[3];
   instance_extensions[0] = (const char *)VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
   instance_extensions[1] = (const char *)VK_KHR_SURFACE_EXTENSION_NAME;
-  instance_extensions[2] = vkenv_getMiniWindowSurfaceExtensionName();
+  instance_extensions[2] = vkenv_getSurfaceExtensionName();
   instance_config.instance_extension_count = 3;
   instance_config.instance_extensions = instance_extensions;
 #endif
@@ -277,15 +277,6 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
     return false;
   }
 
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
-  if (!vkenv_createDebugPresenter(instance->vulkan_device, &instance->debug_presenter, "VulkanSIFT debug"))
-  {
-    logError(LOG_TAG, "vksift_createInstance() failure: An error occured when creating a DebugPresenter instance");
-    vksift_destroyInstance(instance_ptr);
-    return false;
-  }
-#endif
-
   if (!vksift_createSiftMemory(instance->vulkan_device, &instance->sift_memory, config))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the required memory objects");
@@ -345,14 +336,38 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   *instance_ptr = NULL;
 }
 
-bool vksift_presentDebugFrame(vksift_Instance instance)
+bool vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr)
 {
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
 
-  return vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter);
+  // Setup the DebugPresenter from the external window informations
+  vkenv_ExternalWindowInfo window_info = {.context = external_window_info_ptr->context, .window = external_window_info_ptr->window};
+  if (!vkenv_createDebugPresenter(instance->vulkan_device, &instance->debug_presenter, &window_info))
+  {
+    logError(LOG_TAG, "vksift_setupGPUDebugWindow() failure: An error occured when preparing to use the debug window");
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+#else
+  logWarning(LOG_TAG, "vksift_setupGPUDebugWindow() was called but library was not built with GPU DEBUG capabilities.");
+  return false;
+#endif
+}
+
+void vksift_presentDebugFrame(vksift_Instance instance)
+{
+#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+  assert(instance->debug_presenter != NULL); // vksift_setupGPUDebugWindow() must be called before calling vksift_presentDebugFrame()
+  if (!vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter))
+  {
+    logError(LOG_TAG, "vksift_presentDebugFrame(): error when rendering a debug frame to the provided window.");
+    abort();
+  }
 #else
   logWarning(LOG_TAG, "vksift_presentDebugFrame() was called but library was not built with GPU DEBUG capabilities.");
-  return false;
 #endif
 }
 

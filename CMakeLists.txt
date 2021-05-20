@@ -58,15 +58,9 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
     set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC}
         # Add files used onle to provide GPU debugging/profiling capabilities
         src/vulkansift/vkenv/vulkan_swapchain.c
+        src/vulkansift/vkenv/vulkan_surface.c
         src/vulkansift/vkenv/debug_presenter.c
     )
-    # Add platform specific sources
-    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-        set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} src/vulkansift/vkenv/mini_window_xcb.c)
-    elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
-        # TODO
-    endif()
-
 endif()
 
 if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
@@ -131,11 +125,10 @@ endif()
 if(VULKANSIFT_WITH_GPU_DEBUG)
     target_compile_definitions(vulkansift PRIVATE VKSIFT_GPU_DEBUG=1)
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-        # Only xcb is supported in Linux for now
-        target_link_libraries(vulkansift xcb)
-        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XCB_KHR=1)
+        # Only Xlib is supported with Linux for now
+        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XLIB_KHR=1)
     elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
-        # TODO
+        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_WIN32_KHR=1)
     endif()
 endif()
 
@@ -179,7 +172,7 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
     target_compile_options(test_sift_gpu_debug PRIVATE "-O3")
-    target_link_libraries(test_sift_gpu_debug vulkansift ${OpenCV_LIBS})
+    target_link_libraries(test_sift_gpu_debug vulkansift ${OpenCV_LIBS} glfw)
     target_compile_options(test_sift_gpu_debug PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
     set_property(TARGET test_sift_gpu_debug APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 endif(VULKANSIFT_WITH_GPU_DEBUG)

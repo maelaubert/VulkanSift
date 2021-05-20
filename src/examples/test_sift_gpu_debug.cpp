@@ -4,13 +4,50 @@ extern "C"
 }
 #include "test_utils.h"
 
+#include <GLFW/glfw3.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#else
+#define GLFW_EXPOSE_NATIVE_X11
+#endif
+#include <GLFW/glfw3native.h>
+
 #include <cstring>
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
 int main()
 {
-  cv::Mat grayimg = cv::imread("../res/img1.ppm", cv::ImreadModes::IMREAD_GRAYSCALE);
+  if (!glfwInit())
+  {
+    std::cout << "glfwInit() failed." << std::endl;
+    return -1;
+  }
+  GLFWwindow *glfw_window = glfwCreateWindow(400, 100, "vksift GPU debug", NULL, NULL);
+  if (!glfw_window)
+  {
+    std::cout << "glfw window creation failed." << std::endl;
+    glfwTerminate();
+    return -1;
+  }
+
+  // Retrieve information about the window created by GLFW (needed by vksift to render to the window)
+  vksift_ExternalWindowInfo window_info;
+#ifdef _WIN32
+  HINSTANCE win32_instance = GetModuleHandle(NULL);
+  HWND win32_window = glfwGetWin32Window(glfw_window);
+  window_info.context = (void *)(&win32_instance);
+  window_info.window = (void *)(&win32_window);
+#else
+  Display *x11_display = glfwGetX11Display();
+  Window x11_window = glfwGetX11Window(glfw_window);
+  window_info.context = (void *)(&x11_display);
+  window_info.window = (void *)(&x11_window);
+#endif
+
+  cv::Mat grayimg = cv::imread("res/img1.ppm", cv::ImreadModes::IMREAD_GRAYSCALE);
   cv::resize(grayimg, grayimg, cv::Size(1920, 1080));
   // cv::resize(grayimg, grayimg, cv::Size(640, 480));
 
@@ -22,7 +59,7 @@ int main()
     return -1;
   }
 
-  vksift_Config config = vksift_Config_Default;
+  vksift_Config config = vksift_getDefaultConfig();
   // config.pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT16;
   config.use_hardware_interpolated_blur = true;
   vksift_Instance vksift_instance = NULL;
@@ -33,11 +70,20 @@ int main()
     return -1;
   }
 
-  std::vector<vksift_Feature> feats;
-  // Calling vksift_presentDebugFrame() draw an empty to the empty window, every GPU commands executed between two frame
-  // draw (what's inside the while loop) can be profiled/debug with GPU debugger (Nsight, Renderdoc, and probably other tools)
-  while (vksift_presentDebugFrame(vksift_instance))
+  // Setup the instance to use GPU debuggers
+  if (!vksift_setupGPUDebugWindow(vksift_instance, &window_info))
   {
+    vksift_destroyInstance(&vksift_instance);
+    vksift_unloadVulkan();
+  }
+
+  std::vector<vksift_Feature> feats;
+
+  while (!glfwWindowShouldClose(glfw_window)) // Loop until the user destroys the window
+  {
+    // Calling vksift_presentDebugFrame() draw an empty to the empty window, every GPU commands executed between two frame
+    // draw (what's inside the while loop) can be profiled/debug with GPU debugger (Nsight, Renderdoc, and probably other tools)
+    vksift_presentDebugFrame(vksift_instance);
     auto start_ts = std::chrono::high_resolution_clock::now();
     vksift_detectFeatures(vksift_instance, grayimg.data, grayimg.cols, grayimg.rows, 0u);
     auto detect1_ts = std::chrono::high_resolution_clock::now();
@@ -74,10 +120,17 @@ int main()
     uint32_t match_number = vksift_getMatchesNumber(vksift_instance);
     std::cout << "Matches found: " << match_number << std::endl;
     // buffer_idx = (buffer_idx + 1) % config.sift_buffer_count;
+
+    glfwPollEvents(); // check for event (window destruction event)
   }
 
+  // clean up vksift
   vksift_destroyInstance(&vksift_instance);
   vksift_unloadVulkan();
+
+  // clean up glfw
+  glfwDestroyWindow(glfw_window);
+  glfwTerminate();
 
   return 0;
 }

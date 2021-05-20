@@ -104,4 +104,25 @@ typedef struct
   vksift_PyramidPrecisionMode pyramid_precision_mode;
 } vksift_Config;
 
+///////////////////////////////
+// For GPU debugging only
+// To be able to render frames and make the SIFT pipelines visible for debugger/profiler, the user need to create a window (or use the available
+// window on Android) and provide the information to vksift. Since this is different depending on which window provider you use, informations must be
+// filled in the structure vksift_ExternalWindowInfo with opaque type members. Depending on your window manager, fill the two variables with the
+// variables from your Window with the types described below:
+// Xlib (Linux):
+//    - context = Display**
+//    - window = Window*
+// Win32 (Windows):
+//    - context = HINSTANCE*
+//    - window = HWND*
+// Android:
+//    - context = NULL
+//    - window = ANativeWindow**
+typedef struct
+{
+  void *context;
+  void *window;
+} vksift_ExternalWindowInfo;
+
 #endif // VKSIFT_TYPES_H

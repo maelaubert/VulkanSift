@@ -6,7 +6,7 @@ bool VulkanSiftDetector::init()
   {
     return false;
   }
-  vksift_Config config = vksift_Config_Default;
+  vksift_Config config = vksift_getDefaultConfig();
   config.use_hardware_interpolated_blur = true;
   config.input_image_max_size = 1920 * 2 * 1080 * 2;
   sift_instance = NULL;

@@ -32,18 +32,23 @@ void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
 // Get the buffer availability status. Return true if the GPU is not using the buffer for a detection/matching task, false otherwise.
 bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id);
 
-// WARNING | Only implemented when the library was build with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
+////////////////////////////////////////////////////////////////////////////
+// WARNING | Only implemented when the library is built with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
 //         | Return false and log a warning if this is not the case.
+
+// Prepare the GPU Debug Window, must be called before using vksift_presentDebugFrame()
+bool vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr);
 // Draw an empty frame in the debug window. Necessary to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight
 // (They use frame delimiters to detect when to start/stop debugging and can't detect compute-only applications)
-bool vksift_presentDebugFrame(vksift_Instance instance);
+void vksift_presentDebugFrame(vksift_Instance instance);
+////////////////////////////////////////////////////////////////////////////
 
-///////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
 // Scale-space access functions (for debug and visualization)
 uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance);
 void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
 void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *blurred_image);
 void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image);
-///////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
 
 #endif // VULKAN_SIFT_H
