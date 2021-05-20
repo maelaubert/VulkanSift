@@ -169,6 +169,7 @@ target_compile_options(test_sift_show_pyr PRIVATE "${VULKANSIFT_COMPILER_OPTIONS
 set_property(TARGET test_sift_show_pyr APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 if(VULKANSIFT_WITH_GPU_DEBUG)
+    find_package(glfw3 REQUIRED)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
     target_compile_options(test_sift_gpu_debug PRIVATE "-O3")

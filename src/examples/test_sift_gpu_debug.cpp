@@ -25,6 +25,7 @@ int main()
     std::cout << "glfwInit() failed." << std::endl;
     return -1;
   }
+  glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
   GLFWwindow *glfw_window = glfwCreateWindow(400, 100, "vksift GPU debug", NULL, NULL);
   if (!glfw_window)
   {
