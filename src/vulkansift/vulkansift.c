@@ -20,6 +20,24 @@
 
 static const char LOG_TAG[] = "VulkanSift";
 
+static vksift_Config vksift_Config_Default = { .input_image_max_size = 1920u * 1080u,
+                                              .sift_buffer_count = 2u, // minimum number of buffer to support the feature matching function
+                                              .max_nb_sift_per_buffer = 100000u,
+                                              .use_input_upsampling = true, // provide the best results (higher processing time)
+                                              .nb_octaves = 0,              // defined by implementation
+                                              .nb_scales_per_octave = 3u,   // Lowe's paper
+                                              .input_image_blur_level = 0.5f,
+                                              .seed_scale_sigma = 1.6f, // Lowe's paper
+                                              .intensity_threshold = 0.04f,
+                                              .edge_threshold = 10.f,               // Lowe's paper
+                                              .max_nb_orientation_per_keypoint = 4, // no more than 4 descriptor for a single keypoint position
+                                              .descriptor_format = VKSIFT_DESCRIPTOR_FORMAT_UBC, // compatibility with OpenCV and SiftGPU
+                                              .gpu_device_index = -1,                            // GPU auto-selection
+                                              .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
+                                              .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32 };
+
+vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
+
 bool vksift_loadVulkan()
 {
   vkenv_InstanceConfig instance_config = {.application_name = "VulkanSift",

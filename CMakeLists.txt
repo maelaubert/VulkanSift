@@ -10,6 +10,15 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 #####################################################################################
+# Find the Vulkan SDK
+if(NOT CMAKE_VERSION VERSION_LESS 3.7.0) #if FindCmake is available
+    find_package(Vulkan REQUIRED)
+elseif(DEFINED ENV{VULKAN_SDK}) # if VULKAN_SDK in the path
+    set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/lib")
+    find_library(Vulkan_LIBRARY NAMES vulkan-1 vulkan PATHS "$ENV{VULKAN_SDK}/lib")
+else()
+    message(FATAL_ERROR "Could not find the Vulkan SDK")
+endif()
 
 #####################################################################################"
 # Define project options and variables
@@ -23,9 +32,10 @@ set(VULKANSIFT_SANITIZE "" CACHE STRING "Use with value \"Address\" to build usi
 
 #####################################################################################"
 # Check if compiler is Clang or GNU (avoids lots of trouble with optimization related parameters)
-if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    message(FATAL_ERROR "Only GNU and Clang C++ compilers are supported in this project.")
+if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|MSVC")
+     message(FATAL_ERROR "Only GNU, Clang and MSVC compilers are supported in this project.")
 endif()
+
 # Check if platform is Linux or Windows (would need MoltenVK for Mac)
 if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
     message(FATAL_ERROR "Only Linux and Windows platforms are supported in this project.")
@@ -83,7 +93,10 @@ set(VULKANSIFT_LIB_SHADERS
 #####################################################################################
 #####################################################################################
 # Handle CXX compiler and linker options
-set(VULKANSIFT_COMPILER_OPTIONS "-Wall;-Wextra;-O3;$<$<CONFIG:Debug>:-g>;")
+set(VULKANSIFT_COMPILER_OPTIONS "-Wall;-O3;$<$<CONFIG:Debug>:-g>;")
+if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    string(APPEND VULKANSIFT_COMPILER_OPTIONS "-Wextra;")
+endif()
 set(VULKANSIFT_LINKER_OPTIONS "")
 
 #####################################################################################
@@ -104,12 +117,15 @@ target_compile_options(vulkansift PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 set_target_properties(vulkansift PROPERTIES PUBLIC_HEADER "${VULKANSIFT_LIB_HEADERS}")
 target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>)
+target_include_directories(vulkansift PRIVATE ${Vulkan_INCLUDE_DIRS})
 
 if(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME)
     target_compile_definitions(vulkansift PRIVATE VK_NO_PROTOTYPES=1)
-    target_link_libraries(vulkansift dl)
+    if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+        target_link_libraries(vulkansift dl)
+    endif()
 else()
-    target_link_libraries(vulkansift vulkan)
+    target_link_libraries(vulkansift  ${Vulkan_LIBRARY})
 endif()
 
 if(VULKANSIFT_WITH_GPU_DEBUG)
@@ -233,15 +249,22 @@ foreach(res_file_rel_path ${RES_FILE_REL_PATHS})
     set(VULKANSIFT_RES_FILES ${VULKANSIFT_RES_FILES} ${output_file} )
 endforeach()
 
-# custom empty target that depends on all the resource files in the build folder
-add_custom_target(vulkansift_res_copy ALL DEPENDS ${VULKANSIFT_RES_FILES}) 
-# Add resource dependency to all test executables
-add_dependencies(test_sift_detect vulkansift_res_copy)
-add_dependencies(test_sift_match vulkansift_res_copy)
-add_dependencies(test_sift_show_pyr vulkansift_res_copy)
-add_dependencies(test_sift_gpu_debug vulkansift_res_copy)
-# Add resource dependency to all perf executables
-add_dependencies(perf_sift_match vulkansift_res_copy)
-add_dependencies(perf_sift_runtime vulkansift_res_copy)
+if(VULKANSIFT_BUILD_EXAMPLES)
+    # custom empty target that depends on all the resource files in the build folder
+    add_custom_target(vulkansift_res_copy ALL DEPENDS ${VULKANSIFT_RES_FILES}) 
+    # Add resource dependency to all test executables
+    add_dependencies(test_sift_detect vulkansift_res_copy)
+    add_dependencies(test_sift_match vulkansift_res_copy)
+    add_dependencies(test_sift_show_pyr vulkansift_res_copy)
+    if(VULKANSIFT_WITH_GPU_DEBUG)
+        add_dependencies(test_sift_gpu_debug vulkansift_res_copy)
+    endif()
+endif()
+
+if(VULKANSIFT_BUILD_PERFS)
+    # Add resource dependency to all perf executables
+    add_dependencies(perf_sift_match vulkansift_res_copy)
+    add_dependencies(perf_sift_runtime vulkansift_res_copy)
+endif()
 
 endif()

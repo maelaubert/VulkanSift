@@ -14,6 +14,7 @@ void vksift_setLogLevel(vksift_LogLevel level);
 typedef struct vksift_Instance_T *vksift_Instance;
 bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
 void vksift_destroyInstance(vksift_Instance *instance_ptr);
+vksift_Config vksift_getDefaultConfig();
 
 void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                            const uint32_t gpu_buffer_id);

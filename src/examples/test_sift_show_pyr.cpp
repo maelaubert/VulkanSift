@@ -18,7 +18,7 @@ int main()
     return -1;
   }
 
-  vksift_Config config = vksift_Config_Default;
+  vksift_Config config = vksift_getDefaultConfig();
   vksift_Instance vksift_instance = NULL;
   if (!vksift_createInstance(&vksift_instance, &config))
   {
