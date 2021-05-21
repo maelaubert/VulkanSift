@@ -1,8 +1,8 @@
 #ifndef VKSIFT_SIFTMEMORY
 #define VKSIFT_SIFTMEMORY
 
-#include "types.h"
 #include "vkenv/vulkan_device.h"
+#include "vulkansift/types.h"
 
 typedef struct
 {

@@ -7,7 +7,7 @@ else()
   message(STATUS "Program \"glslc\" found: ${GLSLC_PROG}")
 endif()
 
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_package(PythonInterp REQUIRED)
 
 function(addSpvShaderFilesDependency FUNC_TARGET SHADER_PATH_LIST)
   # Compile shaders only if needed (missing/modified) and store them in build/shaders/
@@ -42,7 +42,7 @@ function(addEmbeddedSpvShaderDependency FUNC_TARGET SHADER_PATH_LIST OUTPUT_FILE
   
   add_custom_command(
       OUTPUT ${OUTPUT_FILE}
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_embedded_shader_code.py ${GLSLC_PROG} ${OUTPUT_FILE} ${ABS_SHADER_PATH_LIST} 
+      COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_embedded_shader_code.py ${GLSLC_PROG} ${OUTPUT_FILE} ${ABS_SHADER_PATH_LIST} 
       DEPENDS ${SHADER_PATH_LIST}
   )
   add_custom_target(${FUNC_TARGET}_embedded_shaders ALL DEPENDS ${OUTPUT_FILE})

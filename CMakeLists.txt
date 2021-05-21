@@ -37,8 +37,8 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|MSVC")
 endif()
 
 # Check if platform is Linux or Windows (would need MoltenVK for Mac)
-if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
-    message(FATAL_ERROR "Only Linux and Windows platforms are supported in this project.")
+if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows|Android")
+    message(FATAL_ERROR "Only Linux, Windows and Android platforms are supported in this project.")
 endif()
 #####################################################################################
 # VulkanSift library sources
@@ -67,10 +67,6 @@ if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
     # if we use embedded shaders we need to add the source storing the spv to the library
     set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
 endif()
-
-set(VULKANSIFT_LIB_HEADERS
-    src/vulkansift/vulkansift.h
-)
 
 set(VULKANSIFT_LIB_SHADERS
     # SIFT detector algorithm shaders
@@ -106,11 +102,17 @@ endif()
 #####################################################################################
 #####################################################################################
 # Build the VulkanSift library (no dependencies except git submodules)
-add_library(vulkansift STATIC ${VULKANSIFT_LIB_SRC})
+add_library(vulkansift ${VULKANSIFT_LIB_SRC})
 target_compile_options(vulkansift PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
-set_target_properties(vulkansift PROPERTIES PUBLIC_HEADER "${VULKANSIFT_LIB_HEADERS}")
-target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>)
+
+# Provides access to the interface files for any project using vksift inside their Cmake build
+# using add_subdirectory() and target_link_libraries(target_name vulkansift ...)
+target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/>)
+
+# Private include directories used when building the library
+target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/include/)
+target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/)
 target_include_directories(vulkansift PRIVATE ${Vulkan_INCLUDE_DIRS})
 
 if(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME)

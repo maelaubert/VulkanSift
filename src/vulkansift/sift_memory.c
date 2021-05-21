@@ -1098,11 +1098,12 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
       oct_nb_feat = max_nb_feat;
     }
     feature_sum += oct_nb_feat;
-    if(oct_nb_feat > 0) {
+    if (oct_nb_feat > 0)
+    {
       // sift_copy_region srcOffset doesn't copy the section header
       VkBufferCopy sift_copy_region = {.srcOffset = memory->sift_buffers_info[target_buffer_idx].octave_section_offset_arr[oct_i] + sizeof(uint32_t) * 2,
-                                      .dstOffset = staging_offset,
-                                      .size = sizeof(vksift_Feature) * oct_nb_feat};
+                                       .dstOffset = staging_offset,
+                                       .size = sizeof(vksift_Feature) * oct_nb_feat};
       vkCmdCopyBuffer(memory->transfer_command_buffer, memory->sift_buffer_arr[target_buffer_idx], memory->sift_staging_buffer, 1, &sift_copy_region);
       staging_offset += sizeof(vksift_Feature) * oct_nb_feat;
     }
