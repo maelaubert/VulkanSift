@@ -83,7 +83,7 @@ set(VULKANSIFT_LIB_SHADERS
 #####################################################################################
 #####################################################################################
 # Handle CXX compiler and linker options
-set(VULKANSIFT_COMPILER_OPTIONS "-Wall;-O3;$<$<CONFIG:Debug>:-g>;")
+set(VULKANSIFT_COMPILER_OPTIONS "-Wall;-O3;$<$<CONFIG:Debug>:-g>;-fvisibility=hidden;")
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     string(APPEND VULKANSIFT_COMPILER_OPTIONS "-Wextra;")
 endif()

@@ -36,9 +36,9 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
                                               .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
                                               .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32};
 
-vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
+__attribute__((__visibility__("default"))) vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
 
-bool vksift_loadVulkan()
+__attribute__((__visibility__("default"))) bool vksift_loadVulkan()
 {
   vkenv_InstanceConfig instance_config = {.application_name = "VulkanSift",
                                           .application_version = VK_MAKE_VERSION(1, 0, 0),
@@ -67,9 +67,9 @@ bool vksift_loadVulkan()
   return vkenv_createInstance(&instance_config);
 }
 
-void vksift_unloadVulkan() { vkenv_destroyInstance(); }
+__attribute__((__visibility__("default"))) void vksift_unloadVulkan() { vkenv_destroyInstance(); }
 
-void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names)
+__attribute__((__visibility__("default"))) void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names)
 {
   if (gpu_names == NULL)
   {
@@ -87,7 +87,7 @@ void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names)
   }
 }
 
-void vksift_setLogLevel(vksift_LogLevel level)
+__attribute__((__visibility__("default"))) void vksift_setLogLevel(vksift_LogLevel level)
 {
   switch (level)
   {
@@ -124,7 +124,7 @@ typedef struct vksift_Instance_T
 #endif
 } vksift_Instance_T;
 
-bool checkConfigCond(bool cond, const char *msg_on_cond_false)
+static bool checkConfigCond(bool cond, const char *msg_on_cond_false)
 {
   if (!cond)
   {
@@ -133,7 +133,7 @@ bool checkConfigCond(bool cond, const char *msg_on_cond_false)
   return cond;
 }
 
-bool isConfigurationValid(const vksift_Config *config)
+static bool isConfigurationValid(const vksift_Config *config)
 {
   // Check that the gaussian kernel sigma for the scale-space seed image if superior or equals to 0.
   bool valid_seed_gaussian_kernel = ((config->use_input_upsampling ? 2.f : 1.f) * config->input_image_blur_level) <= config->seed_scale_sigma;
@@ -167,7 +167,7 @@ bool isConfigurationValid(const vksift_Config *config)
   return config_valid;
 }
 
-bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
+static bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
 {
   if (buffer_idx > instance->sift_memory->nb_sift_buffer)
   {
@@ -181,7 +181,7 @@ bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
   }
 }
 
-bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height)
+static bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height)
 {
   uint32_t input_size = input_width * input_height;
   if (input_size > instance->sift_memory->max_image_size)
@@ -196,7 +196,7 @@ bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width
   }
 }
 
-bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
+static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
 {
   if (nb_feats > instance->sift_memory->max_nb_sift_per_buffer)
   {
@@ -210,7 +210,7 @@ bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
   }
 }
 
-bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
+static bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
 {
   if (octave_idx >= instance->sift_memory->curr_nb_octaves)
   {
@@ -223,7 +223,7 @@ bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
   }
 }
 
-bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog)
+static bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog)
 {
   uint32_t add_scale = is_dog ? 2 : 3;
   if (scale_idx >= (instance->sift_memory->nb_scales_per_octave + add_scale))
@@ -238,7 +238,7 @@ bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bo
   }
 }
 
-bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
+__attribute__((__visibility__("default"))) bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
   assert(config != NULL);
@@ -302,7 +302,7 @@ bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *c
   return true;
 }
 
-void vksift_destroyInstance(vksift_Instance *instance_ptr)
+__attribute__((__visibility__("default"))) void vksift_destroyInstance(vksift_Instance *instance_ptr)
 {
   assert(instance_ptr != NULL);
   assert(*instance_ptr != NULL); // vksift_destroyInstance shouldn't be called on NULL Instance
@@ -336,7 +336,8 @@ void vksift_destroyInstance(vksift_Instance *instance_ptr)
   *instance_ptr = NULL;
 }
 
-bool vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr)
+__attribute__((__visibility__("default"))) bool vksift_setupGPUDebugWindow(vksift_Instance instance,
+                                                                           const vksift_ExternalWindowInfo *external_window_info_ptr)
 {
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
 
@@ -357,7 +358,7 @@ bool vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalW
 #endif
 }
 
-void vksift_presentDebugFrame(vksift_Instance instance)
+__attribute__((__visibility__("default"))) void vksift_presentDebugFrame(vksift_Instance instance)
 {
 #if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
   assert(instance->debug_presenter != NULL); // vksift_setupGPUDebugWindow() must be called before calling vksift_presentDebugFrame()
@@ -371,7 +372,7 @@ void vksift_presentDebugFrame(vksift_Instance instance)
 #endif
 }
 
-bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id)
+__attribute__((__visibility__("default"))) bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id)
 {
   if (vkGetFenceStatus(instance->vulkan_device->device, instance->sift_detector->end_of_detection_fence) == VK_NOT_READY &&
       gpu_buffer_id == instance->sift_detector->curr_buffer_idx)
@@ -391,8 +392,8 @@ bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffe
   }
 }
 
-void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
-                           const uint32_t gpu_buffer_id)
+__attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width,
+                                                                      const uint32_t image_height, const uint32_t gpu_buffer_id)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputResolutionValid(instance, image_width, image_height))
   {
@@ -416,7 +417,7 @@ void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, 
   vksift_dispatchSiftDetection(instance->sift_detector, gpu_buffer_id, memory_layout_updated);
 }
 
-uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)
+__attribute__((__visibility__("default"))) uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
@@ -439,7 +440,8 @@ uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_b
   }
   return feat_count;
 }
-void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t gpu_buffer_id)
+
+__attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t gpu_buffer_id)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
@@ -461,7 +463,8 @@ void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr
   }
 }
 
-void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t nb_feats, uint32_t gpu_buffer_id)
+__attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t nb_feats,
+                                                                      uint32_t gpu_buffer_id)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputFeatureCoundValid(instance, nb_feats))
   {
@@ -483,7 +486,7 @@ void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, 
   }
 }
 
-void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B)
+__attribute__((__visibility__("default"))) void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, uint32_t gpu_buffer_id_B)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id_A) || !isBufferIdxValid(instance, gpu_buffer_id_B))
   {
@@ -506,14 +509,14 @@ void vksift_matchFeatures(vksift_Instance instance, uint32_t gpu_buffer_id_A, ui
   }
 }
 
-uint32_t vksift_getMatchesNumber(vksift_Instance instance)
+__attribute__((__visibility__("default"))) uint32_t vksift_getMatchesNumber(vksift_Instance instance)
 {
   uint32_t nb_matches = 0u;
   vksift_Memory_getBufferMatchesCount(instance->sift_memory, &nb_matches);
   return nb_matches;
 }
 
-void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
+__attribute__((__visibility__("default"))) void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
 {
   // If a GPU matching pipeline is currently using the matches buffer, wait for the pipeline to end
   VkFence fences[1] = {instance->sift_matcher->end_of_matching_fence};
@@ -528,9 +531,13 @@ void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches)
 
 ///////////////////////////////////////////////////////////////////////
 // Scale-space access functions (for debug and visualization)
-uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance) { return instance->sift_memory->curr_nb_octaves; }
+__attribute__((__visibility__("default"))) uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance)
+{
+  return instance->sift_memory->curr_nb_octaves;
+}
 
-void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height)
+__attribute__((__visibility__("default"))) void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave,
+                                                                                     uint32_t *octave_images_width, uint32_t *octave_images_height)
 {
   if (octave > instance->sift_memory->curr_nb_octaves)
   {
@@ -542,7 +549,8 @@ void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_
   *octave_images_height = instance->sift_memory->octave_resolutions[octave].height;
 }
 
-void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *blurred_image)
+__attribute__((__visibility__("default"))) void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale,
+                                                                               float *blurred_image)
 {
   if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, false))
   {
@@ -560,7 +568,8 @@ void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octa
   }
 }
 
-void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image)
+__attribute__((__visibility__("default"))) void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale,
+                                                                        float *dog_image)
 {
   if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, true))
   {
