@@ -302,7 +302,7 @@ include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/VulkanSiftConfigVersion.cmake"
     VERSION 0.1
-    COMPATIBILITY SameMinorVersion
+    COMPATIBILITY AnyNewerVersion
 )
 configure_package_config_file(
     "${PROJECT_SOURCE_DIR}/cmake/VulkanSiftConfig.cmake.in"
