@@ -1,8 +1,5 @@
-extern "C"
-{
-#include "vulkansift/vulkansift.h"
-}
 #include "test_utils.h"
+#include "vulkansift/vulkansift.h"
 
 #include <GLFW/glfw3.h>
 
@@ -25,7 +22,7 @@ int main()
     std::cout << "glfwInit() failed." << std::endl;
     return -1;
   }
-  glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   GLFWwindow *glfw_window = glfwCreateWindow(400, 100, "vksift GPU debug", NULL, NULL);
   if (!glfw_window)
   {
@@ -49,7 +46,7 @@ int main()
 #endif
 
   cv::Mat grayimg = cv::imread("res/img1.ppm", cv::ImreadModes::IMREAD_GRAYSCALE);
-  cv::resize(grayimg, grayimg, cv::Size(1920, 1080));
+  // cv::resize(grayimg, grayimg, cv::Size(1920, 1080));
   // cv::resize(grayimg, grayimg, cv::Size(640, 480));
 
   vksift_setLogLevel(VKSIFT_LOG_DEBUG);
@@ -76,6 +73,7 @@ int main()
   {
     vksift_destroyInstance(&vksift_instance);
     vksift_unloadVulkan();
+    return -1;
   }
 
   std::vector<vksift_Feature> feats;

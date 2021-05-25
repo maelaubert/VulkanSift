@@ -3,7 +3,7 @@
 #include "vkenv/logger.h"
 #include "vkenv/vulkan_utils.h"
 
-#include "vulkansift/types.h"
+#include "vulkansift/vulkansift_types.h"
 
 #include <assert.h>
 #include <math.h>
@@ -93,7 +93,7 @@ static bool estimateHighestMemoryRequirement(vksift_SiftMemory memory, uint32_t 
 {
   // Given a maximum number of pixels for an image, try find the aspect ratio that requires the highest memory space by trying the most common aspect
   // ratio. GPU driver may require additionnal space for alignment, but the implementation details are only known by the vendor. On NVIDIA 2060, images
-  // rows and columns seems to require a 64 bytes alignment, but some additionnal bytes may be required.
+  // rows and columns seems to require a 64 bytes alignment, but some additionnal bytes may be required somtimes...
 
   float ratios[4] = {1.f, 4.f / 3.f, 16.f / 9.f, 16.f / 10.f};
 
@@ -525,23 +525,6 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     }
   }
 
-  // Create the matcher pipeline indirect dispatch buffer
-  res = true;
-  VkDeviceSize indirect_matcher_dispatch_buffer_size = 3 * sizeof(uint32_t);
-  res = res && vkenv_createBuffer(&memory->indirect_matcher_dispatch_buffer, memory->device, 0, indirect_matcher_dispatch_buffer_size,
-                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->indirect_matcher_dispatch_buffer, &memory_requirement);
-  res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
-  res = res && vkenv_allocateMemory(&memory->indirect_matcher_dispatch_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
-  res = res && vkenv_bindBufferMemory(memory->device, memory->indirect_matcher_dispatch_buffer, memory->indirect_matcher_dispatch_buffer_memory, 0u);
-  if (!res)
-  {
-    logError(LOG_TAG, "An error occured when setting up the indirect matcher dispatch buffer");
-    return false;
-  }
-
   // Create the transfer fence (created as signaled, signaled means not currently used)
   VkFenceCreateInfo fence_create_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = NULL, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
   if (vkCreateFence(memory->device->device, &fence_create_info, NULL, &memory->transfer_fence) != VK_SUCCESS)
@@ -578,7 +561,6 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
 {
   assert(memory_ptr != NULL);
   assert(config != NULL);
-  assert(*memory_ptr == NULL);
 
   *memory_ptr = (vksift_SiftMemory)malloc(sizeof(struct vksift_SiftMemory_T));
   vksift_SiftMemory memory = *memory_ptr;
@@ -777,7 +759,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
                       vkDestroyBuffer(memory->device->device, memory->indirect_orientation_dispatch_buffer, NULL));
   VK_NULL_SAFE_DELETE(memory->indirect_descriptor_dispatch_buffer,
                       vkDestroyBuffer(memory->device->device, memory->indirect_descriptor_dispatch_buffer, NULL));
-  VK_NULL_SAFE_DELETE(memory->indirect_matcher_dispatch_buffer, vkDestroyBuffer(memory->device->device, memory->indirect_matcher_dispatch_buffer, NULL));
 
   VK_NULL_SAFE_DELETE(memory->sift_staging_buffer_memory, vkFreeMemory(memory->device->device, memory->sift_staging_buffer_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->image_staging_buffer_memory, vkFreeMemory(memory->device->device, memory->image_staging_buffer_memory, NULL));
@@ -787,8 +768,6 @@ void vksift_destroySiftMemory(vksift_SiftMemory *memory_ptr)
                       vkFreeMemory(memory->device->device, memory->indirect_orientation_dispatch_buffer_memory, NULL));
   VK_NULL_SAFE_DELETE(memory->indirect_descriptor_dispatch_buffer_memory,
                       vkFreeMemory(memory->device->device, memory->indirect_descriptor_dispatch_buffer_memory, NULL));
-  VK_NULL_SAFE_DELETE(memory->indirect_matcher_dispatch_buffer_memory,
-                      vkFreeMemory(memory->device->device, memory->indirect_matcher_dispatch_buffer_memory, NULL));
 
   // Destroy Vulkan images and memory
   for (uint32_t i = 0; i < memory->max_nb_octaves; i++)
@@ -1158,7 +1137,7 @@ bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uin
   return true;
 }
 
-bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
+bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, const vksift_Feature *in_features_ptr,
                                            const uint32_t in_feat_count)
 {
   // SIFT buffers from the users are always stored packed on the GPU (packed buffers have the sormat [nb_features (uint32), feat1, feat2, ...])
@@ -1191,7 +1170,7 @@ bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint3
   res = res && (vkBeginCommandBuffer(memory->transfer_command_buffer, &cmdbuf_begin_info) == VK_SUCCESS);
 
   // Copy of the staging buffer to the SIFT buffer, everything is aligned so this is straightforward
-  VkBufferCopy sift_copy_region = {.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(vksift_Feature) * in_feat_count + sizeof(uint32_t)};
+  VkBufferCopy sift_copy_region = {.srcOffset = 0u, .dstOffset = 0u, .size = sizeof(vksift_Feature) * in_feat_count + (2 * sizeof(uint32_t))};
   vkCmdCopyBuffer(memory->transfer_command_buffer, memory->sift_staging_buffer, memory->sift_buffer_arr[target_buffer_idx], 1, &sift_copy_region);
 
   res = res && (vkEndCommandBuffer(memory->transfer_command_buffer) == VK_SUCCESS);

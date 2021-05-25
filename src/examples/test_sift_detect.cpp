@@ -1,8 +1,5 @@
-extern "C"
-{
-#include <vulkansift/vulkansift.h>
-}
 #include "test_utils.h"
+#include <vulkansift/vulkansift.h>
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
@@ -38,7 +35,7 @@ int main()
   bool draw_oriented_keypoints = true;
 
   int user_key = 0;
-  while (user_key != 'q')
+  while (user_key != 'x')
   {
     // Run SIFT feature detection and copy the results to the CPU
     vksift_detectFeatures(vksift_instance, image.data, image.cols, image.rows, 0u);
@@ -63,6 +60,7 @@ int main()
       }
     }
 
+    cv::putText(draw_frame, "x: exit", cv::Size{10, draw_frame.rows - 20}, cv::FONT_HERSHEY_COMPLEX, 0.5f, cv::Scalar(0, 255, 0));
     cv::imshow("VulkanSIFT keypoints", draw_frame);
     user_key = cv::waitKey(1);
   }

@@ -27,9 +27,8 @@ void readHomographyInfoFile(const std::string &file_path, std::array<float, 9> &
   std::cout << std::endl;
 }
 
-void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<cv::KeyPoint> &kp_img2, const std::vector<CommonPoint> &matches_img1,
-                    const std::vector<CommonPoint> &matches_img2, std::array<float, 9> H1to2, float &putative_match_ratio, float &precision,
-                    float &matching_score)
+void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<CommonPoint> &matches_img1, const std::vector<CommonPoint> &matches_img2,
+                    std::array<float, 9> H1to2, float &putative_match_ratio, float &precision, float &matching_score)
 {
   // Check number of valid matches (w.r.t homography)
   int cnt_inliers = 0;
@@ -168,7 +167,7 @@ int main(int argc, char *argv[])
       float putative_match_ratio, precision, matching_score;
 
       // Get metrics
-      computeMetrics(kp_img1, kp_imgN, matches_img1, matches_img2, homography, putative_match_ratio, precision, matching_score);
+      computeMetrics(kp_img1, matches_img1, matches_img2, homography, putative_match_ratio, precision, matching_score);
       // Write them to output file
       std::string res_str = dataset_name + ";" + std::to_string(1) + ";" + std::to_string(n + 1) + ";" + std::to_string(putative_match_ratio) + ";" +
                             std::to_string(precision) + ";" + std::to_string(matching_score) + "\n";

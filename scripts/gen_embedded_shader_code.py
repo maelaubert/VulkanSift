@@ -33,7 +33,7 @@ output_file =  open(target_output_filepath, "w")
 output_file.write("""
 #ifdef VKENV_USE_EMBEDDED_SHADERS
 
-#include "vulkan_utils.h"
+#include "vulkansift/vkenv/vulkan_utils.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>

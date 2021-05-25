@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(VulkanSift DESCRIPTION "SIFT C++ library" LANGUAGES CXX C)
+project(VulkanSift DESCRIPTION "SIFT GPU implementation using Vulkan" LANGUAGES C CXX)
 
 
 #####################################################################################"
@@ -24,7 +24,7 @@ endif()
 # Define project options and variables
 option(VULKANSIFT_WITH_GPU_DEBUG "Use to compile VulkanSift for GPU debug" OFF)
 option(VULKANSIFT_WITH_EMBEDDED_SHADERS "Use to embed the SPIRV shader code directly inside the binary" ON)
-option(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME "Use to dynamically load the Vulkan library at runtime" ON)
+option(VULKANSIFT_LOAD_VK_AT_RUNTIME "Use to dynamically load the Vulkan library at runtime" ON)
 option(VULKANSIFT_BUILD_EXAMPLES "Use to build VulkanSift examples." OFF)
 option(VULKANSIFT_BUILD_PERFS "Use to build VulkanSift performance tests." OFF)
 set(VULKANSIFT_SANITIZE "" CACHE STRING "Use with value \"Address\" to build using the address sanitizer or 
@@ -41,13 +41,13 @@ if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows|Android")
     message(FATAL_ERROR "Only Linux, Windows and Android platforms are supported in this project.")
 endif()
 #####################################################################################
-# VulkanSift library sources
+# VulkanSift sources
 set(VULKANSIFT_LIB_SRC
     src/vulkansift/vulkansift.c
     src/vulkansift/sift_memory.c
     src/vulkansift/sift_detector.c
     src/vulkansift/sift_matcher.c
-    # relevant vkenv files
+    # vkenv files (currently from git submodule)
     src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
     src/vulkansift/vkenv/vulkan_utils.c
@@ -56,7 +56,7 @@ set(VULKANSIFT_LIB_SRC
 
 if(VULKANSIFT_WITH_GPU_DEBUG)
     set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC}
-        # Add files used onle to provide GPU debugging/profiling capabilities
+        # Add files used only to provide GPU debugging/profiling capabilities
         src/vulkansift/vkenv/vulkan_swapchain.c
         src/vulkansift/vkenv/vulkan_surface.c
         src/vulkansift/vkenv/debug_presenter.c
@@ -65,19 +65,20 @@ endif()
 
 if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
     # if we use embedded shaders we need to add the source storing the spv to the library
-    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
+    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
 endif()
 
+# VulkanSift shaders
 set(VULKANSIFT_LIB_SHADERS
     # SIFT detector algorithm shaders
-    src/vulkansift/shaders/GaussianBlur.comp
-    src/vulkansift/shaders/GaussianBlurInterpolated.comp
-    src/vulkansift/shaders/DifferenceOfGaussian.comp
-    src/vulkansift/shaders/ExtractKeypoints.comp
-    src/vulkansift/shaders/ComputeOrientation.comp
-    src/vulkansift/shaders/ComputeDescriptors.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/GaussianBlur.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/GaussianBlurInterpolated.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/DifferenceOfGaussian.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/ExtractKeypoints.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/ComputeOrientation.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/ComputeDescriptors.comp
     # SIFT matching algorithm shaders
-    src/vulkansift/shaders/Get2NearestNeighbors.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/shaders/Get2NearestNeighbors.comp
 )
 
 #####################################################################################
@@ -90,7 +91,7 @@ endif()
 set(VULKANSIFT_LINKER_OPTIONS "")
 
 #####################################################################################
-# Add options for address and thread sanitizers (debug only) for GCC/CLANG compilers
+# Add options for address and thread sanitizers (debug only) (may not be supported by every compiler)
 # Use -DSANITIZE:BOOL=Address or -DSANITIZE:BOOL=Thread to activate with -DCMAKE_BUILD_TYPE:String=Debug
 if(VULKANSIFT_SANITIZE STREQUAL Address)
     string(APPEND VULKANSIFT_COMPILER_OPTIONS "-fsanitize=address")
@@ -101,7 +102,7 @@ elseif(VULKANSIFT_SANITIZE STREQUAL Thread)
 endif()
 #####################################################################################
 #####################################################################################
-# Build the VulkanSift library (no dependencies except git submodules)
+# Build the VulkanSift library
 add_library(vulkansift ${VULKANSIFT_LIB_SRC})
 target_compile_options(vulkansift PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
@@ -111,11 +112,16 @@ set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_
 target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/>)
 
 # Private include directories used when building the library
-target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/include/)
 target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/)
 target_include_directories(vulkansift PRIVATE ${Vulkan_INCLUDE_DIRS})
 
-if(VULKANSIFT_WITH_VK_LOAD_AT_RUNTIME)
+if(CMAKE_SYSTEM_NAME MATCHES "Android")
+    # Add the Android log library to send logs to adb
+    find_library(android-log-lib log REQUIRED)
+    target_link_libraries(vulkansift ${android-log-lib})
+endif()
+
+if(VULKANSIFT_LOAD_VK_AT_RUNTIME)
     target_compile_definitions(vulkansift PRIVATE VK_NO_PROTOTYPES=1)
     if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
         target_link_libraries(vulkansift dl)
@@ -131,13 +137,15 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
         target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XLIB_KHR=1)
     elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
         target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_WIN32_KHR=1)
+    elseif(CMAKE_SYSTEM_NAME MATCHES "Android")
+        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1)
     endif()
 endif()
 
 # Add dependencies on shader files
 include("cmake/ShaderUtils.cmake")
 if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
-    addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkansift/vkenv/embedded_shader_provider.c)
+    addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
     target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
 else()
     addSpvShaderFilesDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}")
@@ -170,7 +178,7 @@ target_link_libraries(test_sift_show_pyr vulkansift ${OpenCV_LIBS})
 target_compile_options(test_sift_show_pyr PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET test_sift_show_pyr APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
-if(VULKANSIFT_WITH_GPU_DEBUG)
+if(VULKANSIFT_WITH_GPU_DEBUG AND NOT CMAKE_SYSTEM_NAME MATCHES "Android")
     find_package(glfw3 REQUIRED)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
@@ -178,13 +186,16 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
     target_link_libraries(test_sift_gpu_debug vulkansift ${OpenCV_LIBS} glfw)
     target_compile_options(test_sift_gpu_debug PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
     set_property(TARGET test_sift_gpu_debug APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
-endif(VULKANSIFT_WITH_GPU_DEBUG)
+endif()
 endif(VULKANSIFT_BUILD_EXAMPLES)
 
 if(VULKANSIFT_BUILD_PERFS)
 message(STATUS "Performance tests will be built")
 # Add perf executables
 find_package(OpenCV REQUIRED)
+
+# Appart from OpenCV, all compared SIFT implementations are compiled separately.
+# Their headers are placed in external_libs/SIFT_IMPL_NAME/src/ and the library placed in external_libs/SIFT_IMPL_NAME/lib/.
 set(VULKAN_SIFT_PERFS_COMMON_SRC 
     src/perf/perf_common.cpp
     src/perf/wrappers/vulkansift_wrapper.cpp

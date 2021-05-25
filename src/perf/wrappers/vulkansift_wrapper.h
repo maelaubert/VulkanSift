@@ -2,10 +2,7 @@
 #define PERF_VUKANSIFT_WRAPPER_H
 
 #include "perf/wrappers/wrapper.h"
-extern "C"
-{
 #include <vulkansift/vulkansift.h>
-}
 
 class VulkanSiftDetector : public AbstractSiftDetector
 {

@@ -1,8 +1,5 @@
-extern "C"
-{
-#include <vulkansift/vulkansift.h>
-}
 #include "test_utils.h"
+#include <vulkansift/vulkansift.h>
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
@@ -48,7 +45,7 @@ int main()
 
   //////////////////////
   int user_key = 0;
-  while (user_key != 'q')
+  while (user_key != 'x')
   {
     // Detect SIFT features on both image (use two different GPU buffers to perform matching directly on the GPU)
     vksift_detectFeatures(vksift_instance, img1.data, img1.cols, img1.rows, 0u);
@@ -107,6 +104,7 @@ int main()
 
     // Draw matches
     cv::Mat matches_image = getKeypointsMatchesImage(img1.data, matches_1, img1.cols, img1.rows, img2.data, matches_2, img2.cols, img2.rows);
+    cv::putText(matches_image, "x: exit", cv::Size{10, matches_image.rows - 20}, cv::FONT_HERSHEY_COMPLEX, 0.5f, cv::Scalar(0, 255, 0));
     cv::imshow("VulkanSIFT matches", matches_image);
 
     user_key = cv::waitKey(1);

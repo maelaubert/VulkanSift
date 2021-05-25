@@ -1,8 +1,5 @@
-extern "C"
-{
-#include <vulkansift/vulkansift.h>
-}
 #include "test_utils.h"
+#include <vulkansift/vulkansift.h>
 
 #include <iostream>
 #include <opencv2/opencv.hpp>

@@ -2,10 +2,15 @@
 #define VKSIFT_SIFTMEMORY
 
 #include "vkenv/vulkan_device.h"
-#include "vulkansift/types.h"
+#include "vulkansift/vulkansift_types.h"
 
 typedef struct
 {
+  // Buffer memory can be arranged in two different ways. After being filled with a detection pipeline the buffer is arranged in sections
+  // that contain the SIFT features detected for each octave. Each section has a header containing the number of features found and the max
+  // number of features that can be stored in this section.
+  // If the buffer is used for the matching pipeline or is filled from user data, it will be created or moved to a "packed" (to the left) format
+  // where there are no sections. A single header containing the number and max number of features is followed by all the SIFT features.
   bool is_packed;
   uint32_t nb_stored_feats; // only available if is_packed is true
 
@@ -36,14 +41,7 @@ typedef struct vksift_SiftMemory_T
   VkFence transfer_fence;
 
   // SIFT buffers
-
-  // Info defining how the data is arranged inside the buffer
-  // [buff1_is_packed=0u, buff1_oct_1_size=X, buff1_oct_2_size=X, ..., buff2_is_packed=0u, buff2_oct_1_size=X, buff2_oct_2_size=X, ...]
-  // If a buffer is not packed, sift features will be arranged in independent section and the number of sift detected for a given octave will be limited
-  // by the section size. If the buffer is packed then all the section have been packed to the left of the buffer, there will be no free space
-  // between the sift features of different octaves.
-  // The section structure depends on the number of octaves, so it depends on the input image resolution and must be recomputed for every input.
-  vksift_SiftBufferInfo *sift_buffers_info; // nb_sift_buffer * (max_nb_octaves+1) * sizeof(uint32_t)
+  vksift_SiftBufferInfo *sift_buffers_info;
   VkBuffer *sift_buffer_arr;
   VkDeviceMemory *sift_buffer_memory_arr;
   VkBuffer *sift_count_staging_buffer_arr;
@@ -87,7 +85,7 @@ typedef struct vksift_SiftMemory_T
   uint32_t curr_nb_octaves;
   vksift_OctaveResolution *octave_resolutions;
 
-  // Matching buffers
+  // Matches buffers
   uint32_t curr_nb_matches; // simply updated using the buffer A number of features
   VkBuffer match_output_buffer;
   VkDeviceMemory match_output_buffer_memory;
@@ -102,8 +100,6 @@ typedef struct vksift_SiftMemory_T
   VkDeviceMemory indirect_orientation_dispatch_buffer_memory;
   VkBuffer indirect_descriptor_dispatch_buffer;
   VkDeviceMemory indirect_descriptor_dispatch_buffer_memory;
-  VkBuffer indirect_matcher_dispatch_buffer;
-  VkDeviceMemory indirect_matcher_dispatch_buffer_memory;
 
   VkQueue general_queue;
   VkQueue async_transfer_queue;
@@ -139,7 +135,7 @@ bool vksift_Memory_getBufferFeatureCount(vksift_SiftMemory memory, const uint32_
 bool vksift_Memory_copyBufferFeaturesFromGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *out_features_ptr);
 
 // Run a transfer command to transfer user SIFT features to the SIFT buffer on the GPU (run on the asynchronous transfer queue if available)
-bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, vksift_Feature *in_features_ptr,
+bool vksift_Memory_copyBufferFeaturesToGPU(vksift_SiftMemory memory, const uint32_t target_buffer_idx, const vksift_Feature *in_features_ptr,
                                            const uint32_t in_feat_count);
 
 // Read from staging buffer memory to retrieve the number of features matches stored in a matches buffer (GPU not involved in this function)

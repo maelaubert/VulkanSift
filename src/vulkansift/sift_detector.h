@@ -2,7 +2,7 @@
 #define VKSIFT_SIFTDETECTOR
 
 #include "sift_memory.h"
-#include "vulkansift/types.h"
+#include "vulkansift/vulkansift_types.h"
 
 #include "vkenv/vulkan_device.h"
 

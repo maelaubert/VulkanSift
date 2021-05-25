@@ -2,7 +2,7 @@
 #define VKSIFT_SIFTMATCHER
 
 #include "sift_memory.h"
-#include "vulkansift/types.h"
+#include "vulkansift/vulkansift_types.h"
 
 #include "vkenv/vulkan_device.h"
 
@@ -43,7 +43,7 @@ typedef struct vksift_SiftMatcher_T
   VkPipeline matching_pipeline;
 } * vksift_SiftMatcher;
 
-bool vksift_createSiftMatcher(vkenv_Device device, vksift_SiftMemory memory, vksift_SiftMatcher *matcher_ptr, const vksift_Config *config);
+bool vksift_createSiftMatcher(vkenv_Device device, vksift_SiftMemory memory, vksift_SiftMatcher *matcher_ptr);
 void vksift_destroySiftMatcher(vksift_SiftMatcher *matcher_ptr);
 
 bool vksift_dispatchSiftMatching(vksift_SiftMatcher matcher, const uint32_t target_buffer_A_idx, const uint32_t target_buffer_B_idx);

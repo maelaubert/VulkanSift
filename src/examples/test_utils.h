@@ -4,10 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-extern "C"
-{
 #include "vulkansift/vulkansift.h"
-}
 
 cv::Mat getOrientedKeypointsImage(uint8_t *in_img, std::vector<vksift_Feature> kps, int width, int height);
 cv::Mat getKeypointsMatchesImage(uint8_t *in_img1, std::vector<vksift_Feature> kps1, int width1, int height1, uint8_t *in_img2,

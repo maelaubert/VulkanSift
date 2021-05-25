@@ -4,7 +4,7 @@
 #include "vulkansift/vkenv/logger.h"
 #include "vulkansift/vkenv/vulkan_device.h"
 #include "vulkansift/vkenv/vulkan_utils.h"
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+#if defined(VKSIFT_GPU_DEBUG)
 #include "vulkansift/vkenv/debug_presenter.h"
 #include "vulkansift/vkenv/vulkan_surface.h"
 #endif
@@ -19,6 +19,15 @@
 #include <string.h>
 
 static const char LOG_TAG[] = "VulkanSift";
+
+// Input validity checks functions
+static bool checkConfigCond(bool cond, const char *msg_on_cond_false);
+static bool isConfigurationValid(const vksift_Config *config);
+static bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx);
+static bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height);
+static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats);
+static bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx);
+static bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog);
 
 static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 1080u,
                                               .sift_buffer_count = 2u, // minimum number of buffer to support the feature matching function
@@ -54,6 +63,7 @@ __attribute__((__visibility__("default"))) bool vksift_loadVulkan()
   const char *validation_layer_name = "VK_LAYER_KHRONOS_validation";
   instance_config.validation_layer_count = 1;
   instance_config.validation_layers = &validation_layer_name;
+#endif
 #ifdef VKSIFT_GPU_DEBUG
   // If compiled with GPU debug support, add the required rendering extensions and the debug marker extension
   const char *instance_extensions[3];
@@ -62,7 +72,6 @@ __attribute__((__visibility__("default"))) bool vksift_loadVulkan()
   instance_extensions[2] = vkenv_getSurfaceExtensionName();
   instance_config.instance_extension_count = 3;
   instance_config.instance_extensions = instance_extensions;
-#endif
 #endif
   return vkenv_createInstance(&instance_config);
 }
@@ -81,7 +90,7 @@ __attribute__((__visibility__("default"))) void vksift_getAvailableGPUs(uint32_t
     vkenv_getPhysicalDevicesProperties(gpu_count, devices_props);
     for (uint32_t i = 0; i < *gpu_count; i++)
     {
-      memcpy(gpu_names[i], devices_props[i].deviceName, 256);
+      memcpy(gpu_names[i], devices_props[i].deviceName, sizeof(VKSIFT_GPU_NAME));
     }
     free(devices_props);
   }
@@ -119,130 +128,22 @@ typedef struct vksift_Instance_T
   vksift_SiftDetector sift_detector;
   vksift_SiftMatcher sift_matcher;
 
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+#if defined(VKSIFT_GPU_DEBUG)
   vkenv_DebugPresenter debug_presenter;
 #endif
 } vksift_Instance_T;
-
-static bool checkConfigCond(bool cond, const char *msg_on_cond_false)
-{
-  if (!cond)
-  {
-    logError(LOG_TAG, msg_on_cond_false);
-  }
-  return cond;
-}
-
-static bool isConfigurationValid(const vksift_Config *config)
-{
-  // Check that the gaussian kernel sigma for the scale-space seed image if superior or equals to 0.
-  bool valid_seed_gaussian_kernel = ((config->use_input_upsampling ? 2.f : 1.f) * config->input_image_blur_level) <= config->seed_scale_sigma;
-
-  bool config_valid = true;
-  config_valid &= checkConfigCond(config->input_image_max_size > 0, "Invalid configuration: input image size must be more than zero");
-  config_valid &= checkConfigCond(config->sift_buffer_count > 0, "Invalid configuration: number of SIFT buffers must be more than zero");
-  config_valid &= checkConfigCond(config->max_nb_sift_per_buffer > 0, "Invalid configuration: number of SIFT features per buffers must be more than zero");
-  config_valid &= checkConfigCond(config->nb_scales_per_octave > 0, "Invalid configuration: number of scales per octave must be more than zero");
-  config_valid &= checkConfigCond(config->input_image_blur_level >= 0.f, "Invalid configuration: input image blur level cannot be negative");
-  config_valid &= checkConfigCond(config->seed_scale_sigma >= 0, "Invalid configuration: seed scale blur level cannot be negative");
-  config_valid &=
-      checkConfigCond(valid_seed_gaussian_kernel,
-                      "Invalid configuration: the input image blur level (2x if upscaling activated) must be less than the seed scale blur level");
-  config_valid &= checkConfigCond(config->intensity_threshold >= 0.f, "Invalid configuration: the DoG intensity threshold cannot be negative");
-  config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
-  config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
-
-  switch (config->pyramid_precision_mode)
-  {
-  case VKSIFT_PYRAMID_PRECISION_FLOAT16:
-    break;
-  case VKSIFT_PYRAMID_PRECISION_FLOAT32:
-    break;
-  default:
-    logError(LOG_TAG, "Invalid configuration: invalid scale-space pyramid format precision specified)");
-    config_valid &= false;
-    break;
-  }
-
-  return config_valid;
-}
-
-static bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
-{
-  if (buffer_idx > instance->sift_memory->nb_sift_buffer)
-  {
-    logError(LOG_TAG, "Provided target buffer index is (%d) but the number of reserved buffers is (%d).", buffer_idx,
-             instance->sift_memory->nb_sift_buffer);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-}
-
-static bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height)
-{
-  uint32_t input_size = input_width * input_height;
-  if (input_size > instance->sift_memory->max_image_size)
-  {
-    logError(LOG_TAG, "Provided input image size (%d*%d=%d) is more than the configured maximum image size (%d).", input_width, input_height, input_size,
-             instance->sift_memory->max_image_size);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-}
-
-static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
-{
-  if (nb_feats > instance->sift_memory->max_nb_sift_per_buffer)
-  {
-    logError(LOG_TAG, "Provided features count (%d) is more than the configured maximum number of features per GPU buffer size (%d).", nb_feats,
-             instance->sift_memory->max_nb_sift_per_buffer);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-}
-
-static bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
-{
-  if (octave_idx >= instance->sift_memory->curr_nb_octaves)
-  {
-    logError(LOG_TAG, "Requested octave idx is %d but the current number of octaves is %d", octave_idx, instance->sift_memory->curr_nb_octaves);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-}
-
-static bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog)
-{
-  uint32_t add_scale = is_dog ? 2 : 3;
-  if (scale_idx >= (instance->sift_memory->nb_scales_per_octave + add_scale))
-  {
-    logError(LOG_TAG, "Requested scale idx is %d but the number of %s scales is %d", scale_idx, is_dog ? "DoG" : "blurred",
-             (instance->sift_memory->nb_scales_per_octave + add_scale));
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-}
 
 __attribute__((__visibility__("default"))) bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
   assert(config != NULL);
-  assert(*instance_ptr == NULL);
+
+  // Check that the Vulkan instance is available
+  if (vkenv_getInstance() == NULL)
+  {
+    logError(LOG_TAG, "vksift_createInstance() failure: Vulkan API not available. vksift_loadVulkan() must be called before using this function.");
+    return false;
+  }
 
   // Check configuration validity
   if (!isConfigurationValid(config))
@@ -264,7 +165,7 @@ __attribute__((__visibility__("default"))) bool vksift_createInstance(vksift_Ins
                                    .nb_async_compute_queues = 0,
                                    .nb_async_transfer_queues = 2,
                                    .target_device_idx = config->gpu_device_index};
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+#if defined(VKSIFT_GPU_DEBUG)
   const char *device_extension_name = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
   gpu_config.device_extension_count = 1;
   gpu_config.device_extensions = &device_extension_name;
@@ -291,14 +192,13 @@ __attribute__((__visibility__("default"))) bool vksift_createInstance(vksift_Ins
     return false;
   }
 
-  if (!vksift_createSiftMatcher(instance->vulkan_device, instance->sift_memory, &instance->sift_matcher, config))
+  if (!vksift_createSiftMatcher(instance->vulkan_device, instance->sift_memory, &instance->sift_matcher))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the SIFT matcher");
     vksift_destroyInstance(instance_ptr);
     return false;
   }
 
-  // Setup Matcher (descriptors, pipelines, cmdbufs)
   return true;
 }
 
@@ -323,7 +223,7 @@ __attribute__((__visibility__("default"))) void vksift_destroyInstance(vksift_In
   // Destroy SiftMemory
   VK_NULL_SAFE_DELETE(instance->sift_memory, vksift_destroySiftMemory(&instance->sift_memory));
 
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
+#if defined(VKSIFT_GPU_DEBUG)
   // Destroy DebugPresenter
   VK_NULL_SAFE_DELETE(instance->debug_presenter, vkenv_destroyDebugPresenter(instance->vulkan_device, &instance->debug_presenter));
 #endif
@@ -334,42 +234,6 @@ __attribute__((__visibility__("default"))) void vksift_destroyInstance(vksift_In
   // Releave vksift_Instance memory
   free(*instance_ptr);
   *instance_ptr = NULL;
-}
-
-__attribute__((__visibility__("default"))) bool vksift_setupGPUDebugWindow(vksift_Instance instance,
-                                                                           const vksift_ExternalWindowInfo *external_window_info_ptr)
-{
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
-
-  // Setup the DebugPresenter from the external window informations
-  vkenv_ExternalWindowInfo window_info = {.context = external_window_info_ptr->context, .window = external_window_info_ptr->window};
-  if (!vkenv_createDebugPresenter(instance->vulkan_device, &instance->debug_presenter, &window_info))
-  {
-    logError(LOG_TAG, "vksift_setupGPUDebugWindow() failure: An error occured when preparing to use the debug window");
-    return false;
-  }
-  else
-  {
-    return true;
-  }
-#else
-  logWarning(LOG_TAG, "vksift_setupGPUDebugWindow() was called but library was not built with GPU DEBUG capabilities.");
-  return false;
-#endif
-}
-
-__attribute__((__visibility__("default"))) void vksift_presentDebugFrame(vksift_Instance instance)
-{
-#if !defined(NDEBUG) && defined(VKSIFT_GPU_DEBUG)
-  assert(instance->debug_presenter != NULL); // vksift_setupGPUDebugWindow() must be called before calling vksift_presentDebugFrame()
-  if (!vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter))
-  {
-    logError(LOG_TAG, "vksift_presentDebugFrame(): error when rendering a debug frame to the provided window.");
-    abort();
-  }
-#else
-  logWarning(LOG_TAG, "vksift_presentDebugFrame() was called but library was not built with GPU DEBUG capabilities.");
-#endif
 }
 
 __attribute__((__visibility__("default"))) bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id)
@@ -463,8 +327,8 @@ __attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_I
   }
 }
 
-__attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, uint32_t nb_feats,
-                                                                      uint32_t gpu_buffer_id)
+__attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Instance instance, const vksift_Feature *feats_ptr, const uint32_t nb_feats,
+                                                                      const uint32_t gpu_buffer_id)
 {
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputFeatureCoundValid(instance, nb_feats))
   {
@@ -587,3 +451,156 @@ __attribute__((__visibility__("default"))) void vksift_downloadDoGImage(vksift_I
   }
 }
 ///////////////////////////////////////////////////////////////////////
+
+__attribute__((__visibility__("default"))) bool vksift_setupGPUDebugWindow(vksift_Instance instance,
+                                                                           const vksift_ExternalWindowInfo *external_window_info_ptr)
+{
+#if defined(VKSIFT_GPU_DEBUG)
+
+  // Setup the DebugPresenter from the external window informations
+  vkenv_ExternalWindowInfo window_info = {.context = external_window_info_ptr->context, .window = external_window_info_ptr->window};
+  if (!vkenv_createDebugPresenter(instance->vulkan_device, &instance->debug_presenter, &window_info))
+  {
+    logError(LOG_TAG, "vksift_setupGPUDebugWindow() failure: An error occured when preparing to use the debug window");
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+#else
+  logWarning(LOG_TAG, "vksift_setupGPUDebugWindow() was called but library was not built with GPU DEBUG capabilities.");
+  return false;
+#endif
+}
+
+__attribute__((__visibility__("default"))) void vksift_presentDebugFrame(vksift_Instance instance)
+{
+#if defined(VKSIFT_GPU_DEBUG)
+  assert(instance->debug_presenter != NULL); // vksift_setupGPUDebugWindow() must be called before calling vksift_presentDebugFrame()
+  if (!vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter))
+  {
+    logError(LOG_TAG, "vksift_presentDebugFrame(): error when rendering a debug frame to the provided window.");
+    abort();
+  }
+#else
+  logWarning(LOG_TAG, "vksift_presentDebugFrame() was called but library was not built with GPU DEBUG capabilities.");
+#endif
+}
+
+///////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
+// Input validity checking functions
+static bool checkConfigCond(bool cond, const char *msg_on_cond_false)
+{
+  if (!cond)
+  {
+    logError(LOG_TAG, msg_on_cond_false);
+  }
+  return cond;
+}
+
+static bool isConfigurationValid(const vksift_Config *config)
+{
+  // Check that the gaussian kernel sigma for the scale-space seed image if superior or equals to 0.
+  bool valid_seed_gaussian_kernel = ((config->use_input_upsampling ? 2.f : 1.f) * config->input_image_blur_level) <= config->seed_scale_sigma;
+
+  bool config_valid = true;
+  config_valid &= checkConfigCond(config->input_image_max_size > 0, "Invalid configuration: input image size must be more than zero");
+  config_valid &= checkConfigCond(config->sift_buffer_count > 0, "Invalid configuration: number of SIFT buffers must be more than zero");
+  config_valid &= checkConfigCond(config->max_nb_sift_per_buffer > 0, "Invalid configuration: number of SIFT features per buffers must be more than zero");
+  config_valid &= checkConfigCond(config->nb_scales_per_octave > 0, "Invalid configuration: number of scales per octave must be more than zero");
+  config_valid &= checkConfigCond(config->input_image_blur_level >= 0.f, "Invalid configuration: input image blur level cannot be negative");
+  config_valid &= checkConfigCond(config->seed_scale_sigma >= 0, "Invalid configuration: seed scale blur level cannot be negative");
+  config_valid &=
+      checkConfigCond(valid_seed_gaussian_kernel,
+                      "Invalid configuration: the input image blur level (2x if upscaling activated) must be less than the seed scale blur level");
+  config_valid &= checkConfigCond(config->intensity_threshold >= 0.f, "Invalid configuration: the DoG intensity threshold cannot be negative");
+  config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
+  config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
+
+  switch (config->pyramid_precision_mode)
+  {
+  case VKSIFT_PYRAMID_PRECISION_FLOAT16:
+    break;
+  case VKSIFT_PYRAMID_PRECISION_FLOAT32:
+    break;
+  default:
+    logError(LOG_TAG, "Invalid configuration: invalid scale-space pyramid format precision specified)");
+    config_valid &= false;
+    break;
+  }
+
+  return config_valid;
+}
+
+static bool isBufferIdxValid(vksift_Instance instance, const uint32_t buffer_idx)
+{
+  if (buffer_idx > instance->sift_memory->nb_sift_buffer)
+  {
+    logError(LOG_TAG, "Provided target buffer index is (%d) but the number of reserved buffers is (%d).", buffer_idx,
+             instance->sift_memory->nb_sift_buffer);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+static bool isInputResolutionValid(vksift_Instance instance, const uint32_t input_width, const uint32_t input_height)
+{
+  uint32_t input_size = input_width * input_height;
+  if (input_size > instance->sift_memory->max_image_size)
+  {
+    logError(LOG_TAG, "Provided input image size (%d*%d=%d) is more than the configured maximum image size (%d).", input_width, input_height, input_size,
+             instance->sift_memory->max_image_size);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb_feats)
+{
+  if (nb_feats > instance->sift_memory->max_nb_sift_per_buffer)
+  {
+    logError(LOG_TAG, "Provided features count (%d) is more than the configured maximum number of features per GPU buffer size (%d).", nb_feats,
+             instance->sift_memory->max_nb_sift_per_buffer);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+static bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx)
+{
+  if (octave_idx >= instance->sift_memory->curr_nb_octaves)
+  {
+    logError(LOG_TAG, "Requested octave idx is %d but the current number of octaves is %d", octave_idx, instance->sift_memory->curr_nb_octaves);
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+static bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog)
+{
+  uint32_t add_scale = is_dog ? 2 : 3;
+  if (scale_idx >= (instance->sift_memory->nb_scales_per_octave + add_scale))
+  {
+    logError(LOG_TAG, "Requested scale idx is %d but the number of %s scales is %d", scale_idx, is_dog ? "DoG" : "blurred",
+             (instance->sift_memory->nb_scales_per_octave + add_scale));
+    return false;
+  }
+  else
+  {
+    return true;
+  }
+}

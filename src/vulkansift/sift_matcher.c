@@ -270,7 +270,7 @@ static void recMatchingCmds(vksift_SiftMatcher matcher, VkCommandBuffer cmdbuf)
                                                     VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, VK_WHOLE_SIZE);
 
   vkCmdPipelineBarrier(cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1, buffer_barriers, 0, NULL);
-  if(matcher->mem->curr_nb_matches > 0)
+  if (matcher->mem->curr_nb_matches > 0)
   {
     VkBufferCopy matches_copy_region = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(vksift_Match_2NN) * matcher->mem->curr_nb_matches};
     vkCmdCopyBuffer(cmdbuf, matcher->mem->match_output_buffer, matcher->mem->match_output_staging_buffer, 1, &matches_copy_region);
@@ -366,13 +366,12 @@ static bool recordCommandBuffers(vksift_SiftMatcher matcher)
   return true;
 }
 
-bool vksift_createSiftMatcher(vkenv_Device device, vksift_SiftMemory memory, vksift_SiftMatcher *matcher_ptr, const vksift_Config *config)
+bool vksift_createSiftMatcher(vkenv_Device device, vksift_SiftMemory memory, vksift_SiftMatcher *matcher_ptr)
 {
   assert(device != NULL);
   assert(memory != NULL);
   assert(matcher_ptr != NULL);
   assert(*matcher_ptr == NULL);
-  assert(config != NULL);
   *matcher_ptr = (vksift_SiftMatcher)malloc(sizeof(struct vksift_SiftMatcher_T));
   vksift_SiftMatcher matcher = *matcher_ptr;
   memset(matcher, 0, sizeof(struct vksift_SiftMatcher_T));
