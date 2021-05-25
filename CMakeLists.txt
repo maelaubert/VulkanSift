@@ -23,7 +23,6 @@ endif()
 #####################################################################################"
 # Define project options and variables
 option(VULKANSIFT_WITH_GPU_DEBUG "Use to compile VulkanSift for GPU debug" OFF)
-option(VULKANSIFT_WITH_EMBEDDED_SHADERS "Use to embed the SPIRV shader code directly inside the binary" ON)
 option(VULKANSIFT_LOAD_VK_AT_RUNTIME "Use to dynamically load the Vulkan library at runtime" ON)
 option(VULKANSIFT_BUILD_EXAMPLES "Use to build VulkanSift examples." OFF)
 option(VULKANSIFT_BUILD_PERFS "Use to build VulkanSift performance tests." OFF)
@@ -52,6 +51,8 @@ set(VULKANSIFT_LIB_SRC
     src/vulkansift/vkenv/vulkan_device.c
     src/vulkansift/vkenv/vulkan_utils.c
     src/vulkansift/vkenv/logger.c
+    # we use embedded shaders we need to add the source storing the spv to the library
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c
 )
 
 if(VULKANSIFT_WITH_GPU_DEBUG)
@@ -61,11 +62,6 @@ if(VULKANSIFT_WITH_GPU_DEBUG)
         src/vulkansift/vkenv/vulkan_surface.c
         src/vulkansift/vkenv/debug_presenter.c
     )
-endif()
-
-if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
-    # if we use embedded shaders we need to add the source storing the spv to the library
-    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
 endif()
 
 # VulkanSift shaders
@@ -109,7 +105,7 @@ set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_
 
 # Provides access to the interface files for any project using vksift inside their Cmake build
 # using add_subdirectory() and target_link_libraries(target_name vulkansift ...)
-target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/>)
+target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/> $<INSTALL_INTERFACE:include>)
 
 # Private include directories used when building the library
 target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/)
@@ -144,12 +140,8 @@ endif()
 
 # Add dependencies on shader files
 include("cmake/ShaderUtils.cmake")
-if(VULKANSIFT_WITH_EMBEDDED_SHADERS)
-    addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
-    target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
-else()
-    addSpvShaderFilesDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}")
-endif()
+addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
+target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
 #####################################################################################
 
 
@@ -275,3 +267,52 @@ if(VULKANSIFT_BUILD_PERFS)
 endif()
 
 endif()
+
+
+# Install library
+SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+set(VULKAN_SIFT_TARGETS vulkansift)
+if(VULKANSIFT_BUILD_EXAMPLES)
+    # Install the examples if they were built
+    set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_detect test_sift_match test_sift_show_pyr)
+    if(VULKANSIFT_WITH_GPU_DEBUG)
+        set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_gpu_debug)
+    endif()
+    # If installing examples we must also install the resource files used
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/res DESTINATION bin/VulkanSift)
+endif()
+
+# Copy include directory content to INSTALL include dir
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
+
+install(TARGETS ${VULKAN_SIFT_TARGETS}
+    EXPORT VulkanSiftTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin/VulkanSift
+    PUBLIC_HEADER DESTINATION include
+)
+
+# Use CMakePackageConfigHelpers to define Cmake config files to install
+# This allows users to use the library using find_package(VulkanSift)
+# and target_link_libraries(target_name ${VulkanSift_LIB})
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/VulkanSiftConfigVersion.cmake"
+    VERSION 0.1
+    COMPATIBILITY SameMinorVersion
+)
+configure_package_config_file(
+    "${PROJECT_SOURCE_DIR}/cmake/VulkanSiftConfig.cmake.in"
+    "${PROJECT_BINARY_DIR}/VulkanSiftConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/VulkanSift
+)
+
+install(EXPORT VulkanSiftTargets DESTINATION lib/cmake/VulkanSift)
+install(FILES
+    "${PROJECT_BINARY_DIR}/VulkanSiftConfigVersion.cmake"
+    "${PROJECT_BINARY_DIR}/VulkanSiftConfig.cmake"
+    DESTINATION lib/cmake/VulkanSift)
+
