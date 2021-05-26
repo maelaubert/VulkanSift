@@ -59,7 +59,9 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
                                               .gpu_device_index = -1,                            // GPU auto-selection
                                               .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
                                               .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32,
-                                              .on_error_callback_function = default_error_callback};
+                                              .on_error_callback_function = default_error_callback,
+                                              .use_gpu_debug_functions = false,
+                                              .gpu_debug_external_window_info = {.context = NULL, .window = NULL}};
 
 __attribute__((__visibility__("default"))) vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
 
@@ -163,8 +165,7 @@ typedef struct vksift_Instance_T
   void (*error_cb_func)(vksift_ErrorType);
 } vksift_Instance_T;
 
-__attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config,
-                                                                                  const vksift_ExternalWindowInfo *external_window_info_ptr)
+__attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
   assert(config != NULL);
@@ -234,7 +235,7 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstanc
     return VKSIFT_ERROR_TYPE_VULKAN;
   }
 
-  if (external_window_info_ptr != NULL)
+  if (config->use_gpu_debug_functions)
   {
     if (swapchain_extensions_supported == false)
     {
@@ -244,7 +245,8 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstanc
     }
 
     // Setup the DebugPresenter from the external window informations
-    vkenv_ExternalWindowInfo window_info = {.context = external_window_info_ptr->context, .window = external_window_info_ptr->window};
+    vkenv_ExternalWindowInfo window_info = {.context = config->gpu_debug_external_window_info.context,
+                                            .window = config->gpu_debug_external_window_info.window};
     if (!vkenv_createDebugPresenter(instance->vulkan_device, &instance->debug_presenter, &window_info))
     {
       logError(LOG_TAG, "vksift_createInstance() failure: An error occured when preparing the debug window");

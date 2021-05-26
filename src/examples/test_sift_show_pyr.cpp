@@ -5,8 +5,23 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-int main()
+int main(int argc, char *argv[])
 {
+  if (argc != 2)
+  {
+    std::cout << "Invalid command." << std::endl;
+    std::cout << "Usage: ./test_sift_show_pyr PATH_TO_IMAGE" << std::endl;
+    return -1;
+  }
+
+  // Read image with OpenCV
+  cv::Mat image = cv::imread(argv[1], 0);
+  if (image.empty())
+  {
+    std::cout << "Failed to read image " << argv[1] << ". Stopping program." << std::endl;
+    return -1;
+  }
+
   vksift_setLogLevel(VKSIFT_LOG_INFO);
 
   if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
@@ -16,6 +31,8 @@ int main()
   }
 
   vksift_Config config = vksift_getDefaultConfig();
+  config.input_image_max_size = image.cols * image.rows;
+
   vksift_Instance vksift_instance = NULL;
   if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
@@ -23,9 +40,6 @@ int main()
     vksift_unloadVulkan();
     return -1;
   }
-
-  // Read image with OpenCV
-  cv::Mat image = cv::imread("res/img1.ppm", 0); // force loading as grey image to directly get a CV_8UC1 format
 
   // Run feature detection in which the pyramid will be created to extract keypoints
   vksift_detectFeatures(vksift_instance, image.data, image.cols, image.rows, 0u);

@@ -15,8 +15,23 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
-int main()
+int main(int argc, char *argv[])
 {
+  if (argc != 2)
+  {
+    std::cout << "Invalid command." << std::endl;
+    std::cout << "Usage: ./test_sift_gpu_debug PATH_TO_IMAGE" << std::endl;
+    return -1;
+  }
+
+  // Read image with OpenCV
+  cv::Mat image = cv::imread(argv[1], 0);
+  if (image.empty())
+  {
+    std::cout << "Failed to read image " << argv[1] << ". Stopping program." << std::endl;
+    return -1;
+  }
+
   if (!glfwInit())
   {
     std::cout << "glfwInit() failed." << std::endl;
@@ -45,10 +60,6 @@ int main()
   window_info.window = (void *)(&x11_window);
 #endif
 
-  cv::Mat grayimg = cv::imread("res/img1.ppm", cv::ImreadModes::IMREAD_GRAYSCALE);
-  // cv::resize(grayimg, grayimg, cv::Size(1920, 1080));
-  // cv::resize(grayimg, grayimg, cv::Size(640, 480));
-
   vksift_setLogLevel(VKSIFT_LOG_DEBUG);
 
   if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
@@ -58,10 +69,12 @@ int main()
   }
 
   vksift_Config config = vksift_getDefaultConfig();
-  // config.pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT16;
-  config.use_hardware_interpolated_blur = true;
+  config.input_image_max_size = image.cols * image.rows;
+  config.use_gpu_debug_functions = true;
+  config.gpu_debug_external_window_info = window_info;
+
   vksift_Instance vksift_instance = NULL;
-  if (vksift_createInstance(&vksift_instance, &config, &window_info) != VKSIFT_ERROR_TYPE_SUCCESS)
+  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to create the vksift_instance" << std::endl;
     vksift_unloadVulkan();
@@ -76,9 +89,9 @@ int main()
     // draw (what's inside the while loop) can be profiled/debug with GPU debugger (Nsight, Renderdoc, and probably other tools)
     vksift_presentDebugFrame(vksift_instance);
     auto start_ts = std::chrono::high_resolution_clock::now();
-    vksift_detectFeatures(vksift_instance, grayimg.data, grayimg.cols, grayimg.rows, 0u);
+    vksift_detectFeatures(vksift_instance, image.data, image.cols, image.rows, 0u);
     auto detect1_ts = std::chrono::high_resolution_clock::now();
-    vksift_detectFeatures(vksift_instance, grayimg.data, grayimg.cols, grayimg.rows, 1u);
+    vksift_detectFeatures(vksift_instance, image.data, image.cols, image.rows, 1u);
     auto detect2_ts = std::chrono::high_resolution_clock::now();
 
     uint32_t nb_sift = vksift_getFeaturesNumber(vksift_instance, 0u);
@@ -90,7 +103,7 @@ int main()
     vksift_uploadFeatures(vksift_instance, feats.data(), feats.size(), 0);
     auto upload1_ts = std::chrono::high_resolution_clock::now();
 
-    cv::Mat frame = getOrientedKeypointsImage(grayimg.data, feats, grayimg.cols, grayimg.rows);
+    cv::Mat frame = getOrientedKeypointsImage(image.data, feats, image.cols, image.rows);
     cv::imshow("test", frame);
     cv::waitKey(1);
 

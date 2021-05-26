@@ -73,6 +73,27 @@ extern "C"
     VKSIFT_ERROR_TYPE_VULKAN
   } vksift_ErrorType;
 
+  ///////////////////////////////
+  // For GPU debugging only
+  // To be able to render frames and make the SIFT pipelines visible for debugger/profiler, the user need to create a window (or use the available
+  // window on Android) and provide the information to vksift. Since this is different depending on which window provider you use, informations must be
+  // filled in the structure vksift_ExternalWindowInfo with opaque type members. Depending on your window manager, fill the two variables with the
+  // variables from your Window with the types described below:
+  // Xlib (Linux):
+  //    - context = Display**
+  //    - window = Window*
+  // Win32 (Windows):
+  //    - context = HINSTANCE*
+  //    - window = HWND*
+  // Android:
+  //    - context = NULL
+  //    - window = ANativeWindow**
+  typedef struct
+  {
+    void *context;
+    void *window;
+  } vksift_ExternalWindowInfo;
+
   typedef struct
   {
     // Input/Output configuration
@@ -126,28 +147,12 @@ extern "C"
     // Can be used by C++ users to throw exceptions inside the callback. See the vksift_ErrorType description for information on what can be used/done
     // after receiving errors. (default: wrapper around abort() function)
     void (*on_error_callback_function)(vksift_ErrorType);
-  } vksift_Config;
 
-  ///////////////////////////////
-  // For GPU debugging only
-  // To be able to render frames and make the SIFT pipelines visible for debugger/profiler, the user need to create a window (or use the available
-  // window on Android) and provide the information to vksift. Since this is different depending on which window provider you use, informations must be
-  // filled in the structure vksift_ExternalWindowInfo with opaque type members. Depending on your window manager, fill the two variables with the
-  // variables from your Window with the types described below:
-  // Xlib (Linux):
-  //    - context = Display**
-  //    - window = Window*
-  // Win32 (Windows):
-  //    - context = HINSTANCE*
-  //    - window = HWND*
-  // Android:
-  //    - context = NULL
-  //    - window = ANativeWindow**
-  typedef struct
-  {
-    void *context;
-    void *window;
-  } vksift_ExternalWindowInfo;
+    // Set to true and fill the data in external_window_info to be able to use vksift_presentDebugFrame() and profile applications
+    // with GPU debuggers/profilers
+    bool use_gpu_debug_functions;
+    vksift_ExternalWindowInfo gpu_debug_external_window_info;
+  } vksift_Config;
 
 #ifdef __cplusplus
 }

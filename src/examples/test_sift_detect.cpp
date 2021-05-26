@@ -5,8 +5,22 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-int main()
+int main(int argc, char *argv[])
 {
+  if (argc != 2)
+  {
+    std::cout << "Invalid command." << std::endl;
+    std::cout << "Usage: ./test_sift_detect PATH_TO_IMAGE" << std::endl;
+    return -1;
+  }
+
+  // Read image with OpenCV
+  cv::Mat image = cv::imread(argv[1], 0);
+  if (image.empty())
+  {
+    std::cout << "Failed to read image " << argv[1] << ". Stopping program." << std::endl;
+    return -1;
+  }
 
   vksift_setLogLevel(VKSIFT_LOG_INFO);
 
@@ -19,6 +33,8 @@ int main()
 
   // Create a vksift instance using the default configuration
   vksift_Config config = vksift_getDefaultConfig();
+  config.input_image_max_size = image.cols * image.rows;
+
   vksift_Instance vksift_instance = NULL;
   if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
@@ -26,10 +42,6 @@ int main()
     vksift_unloadVulkan();
     return -1;
   }
-
-  // Read image with OpenCV
-  cv::Mat image = cv::imread("res/img1.ppm", 0);
-  cv::resize(image, image, cv::Size(640, 480));
 
   std::vector<vksift_Feature> feat_vec;
   bool draw_oriented_keypoints = true;

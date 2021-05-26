@@ -29,13 +29,7 @@ extern "C"
   // vksift_ExternalWindowInfo pointer is only needed to debug/profile VulkanSift GPU functions and use vksift_presentDebugFrame(),
   // it can be left to NULL if not needed.
   typedef struct vksift_Instance_T *vksift_Instance;
-#ifdef __cplusplus
-  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config,
-                                         const vksift_ExternalWindowInfo *external_window_info_ptr = NULL);
-#else
-vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config,
-                                       const vksift_ExternalWindowInfo *external_window_info_ptr);
-#endif
+  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
   void vksift_destroyInstance(vksift_Instance *instance_ptr);
   vksift_Config vksift_getDefaultConfig();
 
@@ -92,7 +86,8 @@ vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksi
   /**
    * GPU Debug functions
    *
-   * WARNING | Only available when external window information were specified in vksift_createInstance.
+   * WARNING | Only available when use_gpu_debug_functions is true and gpu_debug_external_window_info is filled
+   *         | in the configuration structure during the call to vksift_createInstance.
    *         | Do nothing and print a warning if this is not the case.
    **/
   // Draw an empty frame in the debug window. Required to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight

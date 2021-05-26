@@ -5,8 +5,29 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-int main()
+int main(int argc, char *argv[])
 {
+  if (argc != 3)
+  {
+    std::cout << "Invalid command." << std::endl;
+    std::cout << "Usage: ./test_sift_match PATH_TO_IMAGE1 PATH_TO_IMAGE2" << std::endl;
+    return -1;
+  }
+
+  // Read image with OpenCV
+  cv::Mat img1 = cv::imread(argv[1], 0);
+  if (img1.empty())
+  {
+    std::cout << "Failed to read image 1 " << argv[1] << ". Stopping program." << std::endl;
+    return -1;
+  }
+
+  cv::Mat img2 = cv::imread(argv[2], 0);
+  if (img2.empty())
+  {
+    std::cout << "Failed to read image 2 " << argv[2] << ". Stopping program." << std::endl;
+    return -1;
+  }
 
   // Setup VulkanSIFT
   vksift_setLogLevel(VKSIFT_LOG_INFO);
@@ -18,6 +39,8 @@ int main()
   }
 
   vksift_Config config = vksift_getDefaultConfig();
+  config.input_image_max_size = std::max(img1.cols * img1.rows, img2.cols * img2.rows);
+
   vksift_Instance vksift_instance = NULL;
   if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
@@ -25,13 +48,6 @@ int main()
     vksift_unloadVulkan();
     return -1;
   }
-
-  // Read images with OpenCV
-  cv::Mat img1 = cv::imread("res/img1.ppm", 0);
-  cv::resize(img1, img1, cv::Size(640, 480));
-
-  cv::Mat img2 = cv::imread("res/img2.ppm", 0);
-  cv::resize(img2, img2, cv::Size(640, 480));
 
   // Keypoints for the image 1 and 2
   std::vector<vksift_Feature> img1_kp;

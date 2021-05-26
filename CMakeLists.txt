@@ -274,8 +274,6 @@ if(VULKANSIFT_BUILD_EXAMPLES)
     if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE)
         set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_gpu_debug)
     endif()
-    # If installing examples we must also install the resource files used
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/res DESTINATION bin/VulkanSift)
 endif()
 
 # Copy include directory content to INSTALL include dir
