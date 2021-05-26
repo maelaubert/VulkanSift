@@ -61,17 +61,9 @@ int main()
   // config.pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT16;
   config.use_hardware_interpolated_blur = true;
   vksift_Instance vksift_instance = NULL;
-  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
+  if (vksift_createInstance(&vksift_instance, &config, &window_info) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to create the vksift_instance" << std::endl;
-    vksift_unloadVulkan();
-    return -1;
-  }
-
-  // Setup the instance to use GPU debuggers
-  if (vksift_setupGPUDebugWindow(vksift_instance, &window_info) != VKSIFT_ERROR_TYPE_SUCCESS)
-  {
-    vksift_destroyInstance(&vksift_instance);
     vksift_unloadVulkan();
     return -1;
   }

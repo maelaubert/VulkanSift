@@ -22,9 +22,10 @@ endif()
 
 #####################################################################################"
 # Define project options and variables
-option(VULKANSIFT_WITH_GPU_DEBUG "Use to compile VulkanSift for GPU debug" OFF)
+option(BUILD_SHARED_LIBS "Use to build shared library" ON)
 option(VULKANSIFT_LOAD_VK_AT_RUNTIME "Use to dynamically load the Vulkan library at runtime" ON)
 option(VULKANSIFT_BUILD_EXAMPLES "Use to build VulkanSift examples." OFF)
+option(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE "Use to build an example that can be used with GPU profilers/debuggers" OFF)
 option(VULKANSIFT_BUILD_PERFS "Use to build VulkanSift performance tests." OFF)
 set(VULKANSIFT_SANITIZE "" CACHE STRING "Use with value \"Address\" to build using the address sanitizer or 
     with \"Thread\" to build using the thread sanitizer. Leave empty otherwise.")
@@ -50,19 +51,13 @@ set(VULKANSIFT_LIB_SRC
     src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
     src/vulkansift/vkenv/vulkan_utils.c
+    src/vulkansift/vkenv/vulkan_swapchain.c
+    src/vulkansift/vkenv/vulkan_surface.c
+    src/vulkansift/vkenv/debug_presenter.c
     src/vulkansift/vkenv/logger.c
     # we use embedded shaders we need to add the source storing the spv to the library
     ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c
 )
-
-if(VULKANSIFT_WITH_GPU_DEBUG)
-    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC}
-        # Add files used only to provide GPU debugging/profiling capabilities
-        src/vulkansift/vkenv/vulkan_swapchain.c
-        src/vulkansift/vkenv/vulkan_surface.c
-        src/vulkansift/vkenv/debug_presenter.c
-    )
-endif()
 
 # VulkanSift shaders
 set(VULKANSIFT_LIB_SHADERS
@@ -126,16 +121,14 @@ else()
     target_link_libraries(vulkansift  ${Vulkan_LIBRARY})
 endif()
 
-if(VULKANSIFT_WITH_GPU_DEBUG)
-    target_compile_definitions(vulkansift PRIVATE VKSIFT_GPU_DEBUG=1)
-    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-        # Only Xlib is supported with Linux for now
-        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XLIB_KHR=1)
-    elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
-        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_WIN32_KHR=1)
-    elseif(CMAKE_SYSTEM_NAME MATCHES "Android")
-        target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1)
-    endif()
+# Set Vulkan defines to load platform specific functions (required to use surface creation related functions)
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    # Only Xlib is supported with Linux for now
+    target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_XLIB_KHR=1)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+    target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_WIN32_KHR=1)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Android")
+    target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1)
 endif()
 
 # Add dependencies on shader files
@@ -170,7 +163,7 @@ target_link_libraries(test_sift_show_pyr vulkansift ${OpenCV_LIBS})
 target_compile_options(test_sift_show_pyr PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET test_sift_show_pyr APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
-if(VULKANSIFT_WITH_GPU_DEBUG AND NOT CMAKE_SYSTEM_NAME MATCHES "Android")
+if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE AND NOT CMAKE_SYSTEM_NAME MATCHES "Android")
     find_package(glfw3 REQUIRED)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
@@ -179,6 +172,7 @@ if(VULKANSIFT_WITH_GPU_DEBUG AND NOT CMAKE_SYSTEM_NAME MATCHES "Android")
     target_compile_options(test_sift_gpu_debug PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
     set_property(TARGET test_sift_gpu_debug APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 endif()
+
 endif(VULKANSIFT_BUILD_EXAMPLES)
 
 if(VULKANSIFT_BUILD_PERFS)
@@ -255,7 +249,7 @@ if(VULKANSIFT_BUILD_EXAMPLES)
     add_dependencies(test_sift_detect vulkansift_res_copy)
     add_dependencies(test_sift_match vulkansift_res_copy)
     add_dependencies(test_sift_show_pyr vulkansift_res_copy)
-    if(VULKANSIFT_WITH_GPU_DEBUG)
+    if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE)
         add_dependencies(test_sift_gpu_debug vulkansift_res_copy)
     endif()
 endif()
@@ -277,7 +271,7 @@ set(VULKAN_SIFT_TARGETS vulkansift)
 if(VULKANSIFT_BUILD_EXAMPLES)
     # Install the examples if they were built
     set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_detect test_sift_match test_sift_show_pyr)
-    if(VULKANSIFT_WITH_GPU_DEBUG)
+    if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE)
         set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_gpu_debug)
     endif()
     # If installing examples we must also install the resource files used

@@ -26,8 +26,16 @@ extern "C"
   // Create and destroy a vksift_Instance. A vksift_Instance manages GPU resources, detection and matching pipelines as configured
   // by the vksift_Config user configuration. It uses only one GPU device specified in the configuration (if not specified
   // the best available GPU should be automatically selected).
+  // vksift_ExternalWindowInfo pointer is only needed to debug/profile VulkanSift GPU functions and use vksift_presentDebugFrame(),
+  // it can be left to NULL if not needed.
   typedef struct vksift_Instance_T *vksift_Instance;
-  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
+#ifdef __cplusplus
+  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config,
+                                         const vksift_ExternalWindowInfo *external_window_info_ptr = NULL);
+#else
+vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config,
+                                       const vksift_ExternalWindowInfo *external_window_info_ptr);
+#endif
   void vksift_destroyInstance(vksift_Instance *instance_ptr);
   vksift_Config vksift_getDefaultConfig();
 
@@ -82,14 +90,11 @@ extern "C"
   void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image);
 
   /**
-   * Debug functions
+   * GPU Debug functions
    *
-   * WARNING | Only implemented when the library is built with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
-   *         | Return VKSIFT_ERROR_TYPE_SUCCESS and print a warning if this is not the case.
+   * WARNING | Only available when external window information were specified in vksift_createInstance.
+   *         | Do nothing and print a warning if this is not the case.
    **/
-
-  // Prepare the GPU Debug Window, must be called before using vksift_presentDebugFrame()
-  vksift_ErrorType vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr);
   // Draw an empty frame in the debug window. Required to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight
   // (They use frame delimiters to detect when to start/stop debugging and can't detect compute-only applications)
   void vksift_presentDebugFrame(vksift_Instance instance);
