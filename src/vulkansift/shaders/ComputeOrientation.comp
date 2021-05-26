@@ -11,14 +11,14 @@
 struct SIFT_Feat {
   float x;
   float y;
-  uint orig_x;
-  uint orig_y;
-  uint index_scale;
+  float scale_x;
+  float scale_y;
+  uint scale_idx;
+  int octave_idx;
   float sigma;
-  float scale_factor;
-  float theta;
-  float value;
-  uint feature_vector[(NB_HIST*NB_HIST*NB_ORI)/4];
+  float orientation;
+  float intensity;
+  uint descriptor[(NB_HIST*NB_HIST*NB_ORI)/4];
 };
 
 #define LOCAL_SIZE_X 32
@@ -26,6 +26,7 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 layout(r32f, binding = 0) uniform image2DArray octave_input;
 layout(std430, binding = 1) buffer SIFT_buffer {
     uint nb_elem;
+    uint max_nb_feat;
     SIFT_Feat data[];
 };
 layout(std430, binding = 2) buffer IndispatchBuffer {
@@ -33,6 +34,10 @@ layout(std430, binding = 2) buffer IndispatchBuffer {
     uint nb_y_group;
     uint nb_z_group;
 };
+
+layout(push_constant) uniform PushConst {
+  uint max_nb_orientation;
+} push_const;
 
 float getImVal(int scale_idx, int x, int y) {
     return imageLoad(octave_input, ivec3(x, y, scale_idx)).r;
@@ -61,7 +66,8 @@ void main() {
     int image_width = imageSize(octave_input).x;
     int image_height = imageSize(octave_input).y;
 
-    float scaled_lambda_ori = LAMBDA_ORIENTATION * (kp.sigma / kp.scale_factor);
+    float scale_factor = pow(2.f,kp.octave_idx);
+    float scaled_lambda_ori = LAMBDA_ORIENTATION * (kp.sigma / scale_factor);
     int box_radius = int(floor(3 * scaled_lambda_ori));
     float expf_scale = -1.f / (2.f * scaled_lambda_ori * scaled_lambda_ori);
 
@@ -79,11 +85,11 @@ void main() {
     for(int pix_idx=local_id; pix_idx<(box_size*box_size); pix_idx+=LOCAL_SIZE_X) {
         int delta_y = (pix_idx/box_size)-box_radius;
         int delta_x = (pix_idx%box_size)-box_radius;
-        int grad_x_idx = int(round(kp.x)) + delta_x;
-        int grad_y_idx = int(round(kp.y)) + delta_y;
+        int grad_x_idx = int(round(kp.scale_x)) + delta_x;
+        int grad_y_idx = int(round(kp.scale_y)) + delta_y;
 
-        float subpix_delta_x = (round(kp.x)+float(delta_x))-kp.x;
-        float subpix_delta_y = (round(kp.y)+float(delta_y))-kp.y;
+        float subpix_delta_x = (round(kp.scale_x)+float(delta_x))-kp.scale_x;
+        float subpix_delta_y = (round(kp.scale_y)+float(delta_y))-kp.scale_y;
 
         float sqrdist2center = (subpix_delta_x * subpix_delta_x) + (subpix_delta_y * subpix_delta_y);
 
@@ -93,8 +99,8 @@ void main() {
             continue;
         }
 
-        float gradX = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx+1, grad_y_idx) - getImVal(int(kp.index_scale), grad_x_idx-1, grad_y_idx));
-        float gradY = 0.5f * (getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx+1) - getImVal(int(kp.index_scale), grad_x_idx, grad_y_idx-1));
+        float gradX = 0.5f * (getImVal(int(kp.scale_idx), grad_x_idx+1, grad_y_idx) - getImVal(int(kp.scale_idx), grad_x_idx-1, grad_y_idx));
+        float gradY = 0.5f * (getImVal(int(kp.scale_idx), grad_x_idx, grad_y_idx+1) - getImVal(int(kp.scale_idx), grad_x_idx, grad_y_idx-1));
 
         float mag = exp((sqrdist2center) * expf_scale)*sqrt((gradX*gradX)+(gradY*gradY));
         float orientation = atan(gradY, gradX);
@@ -163,14 +169,17 @@ void main() {
 
             uint prev_nb_ori = atomicAdd(orientation_count, 1);
             if(prev_nb_ori==0) {
-                data[gl_WorkGroupID.x].theta = keypoint_orientation;
+                data[gl_WorkGroupID.x].orientation = keypoint_orientation;
             }
-            else {
+            else if(push_const.max_nb_orientation==0 || prev_nb_ori<push_const.max_nb_orientation) {
                 // Add new keypoint with orientation
                 uint new_kpt_idx = atomicAdd(nb_elem, 1);
-                atomicAdd(nb_x_group, 1);
-                data[new_kpt_idx] = kp;
-                data[new_kpt_idx].theta = keypoint_orientation;
+                if(new_kpt_idx<max_nb_feat) {
+                    // avoid out of bound memory writes
+                    atomicAdd(nb_x_group, 1);
+                    data[new_kpt_idx] = kp;
+                    data[new_kpt_idx].orientation = keypoint_orientation;
+                }
             }
         }
     }

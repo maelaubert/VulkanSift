@@ -10,9 +10,8 @@ class OpenCvDetector : public AbstractSiftDetector
 
   bool init() override;
   void terminate() override;
-  void getMatches(cv::Mat image1, cv::Mat image2, std::vector<CommonPoint> &kps_img1, std::vector<CommonPoint> &kps_img2,
-                  std::vector<CommonPoint> &matches_img1, std::vector<CommonPoint> &matches_img2) override;
-  float measureMeanExecutionTimeMs(cv::Mat image, int nb_warmup_iter, int nb_iter) override;
+  void detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descs, bool convert_and_copy_to_cv_format) override;
+  bool useFloatImage() override { return false; }
 
   private:
   cv::Ptr<cv::SIFT> m_detector;

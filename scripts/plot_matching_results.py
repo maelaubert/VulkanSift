@@ -1,4 +1,3 @@
-import numpy as np
 import sys
 import os
 import matplotlib.pyplot as plt
@@ -25,17 +24,15 @@ for res_file_name in res_files:
         if not dataset_name in results.keys():
             results[dataset_name] = {}
         if not detector_name in results[dataset_name].keys():
-            results[dataset_name][detector_name] = {"Putative Match Ratio": [], "Precision": [], "Matching score": [], "Recall": []}
+            results[dataset_name][detector_name] = {"Putative Match Ratio": [], "Precision": [], "Matching score": []}
 
         pmr = float(line.split(";")[3])*100
         precision = float(line.split(";")[4])*100
         matching_score = float(line.split(";")[5])*100
-        recall = float(line.split(";")[6])*100
 
         results[dataset_name][detector_name]["Putative Match Ratio"].append(pmr)
         results[dataset_name][detector_name]["Precision"].append(precision)
         results[dataset_name][detector_name]["Matching score"].append(matching_score)
-        results[dataset_name][detector_name]["Recall"].append(recall)
 
 # Save figures
 for dataset_name in results.keys():
