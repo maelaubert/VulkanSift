@@ -7,7 +7,7 @@
 
 void printUsage()
 {
-  std::cout << "Usage: ./perf_sift_runtime SIFT_DETECTOR_NAME" << std::endl;
+  std::cout << "Usage: ./perf_sift_runtime IMAGE_PATH SIFT_DETECTOR_NAME" << std::endl;
   std::cout << "Available detector names: " << std::endl;
   for (auto det_name : getDetectorTypeNames())
   {
@@ -19,14 +19,16 @@ int main(int argc, char *argv[])
 {
   //////////////////////////////////////////////////////////////////////////
   // Parameter handling to get name of requested SIFT detector/matcher
-  if (argc != 2)
+  if (argc != 3)
   {
     std::cout << "Error: wrong number of arguments" << std::endl;
     printUsage();
     return -1;
   }
 
-  std::string detector_name{argv[1]};
+  std::string image_path{argv[1]};
+
+  std::string detector_name{argv[2]};
   DETECTOR_TYPE detector_type;
   if (!getDetectorTypeFromName(detector_name, detector_type))
   {
@@ -43,8 +45,13 @@ int main(int argc, char *argv[])
   // Prepare output file
   std::ofstream result_file{"runtime_results_" + detector_name + ".txt"};
 
-  cv::Mat image = cv::imread("res/img1.ppm", 0);
-  cv::resize(image, image, cv::Size(640, 480));
+  cv::Mat image = cv::imread(image_path, 0);
+  if (image.empty())
+  {
+    std::cout << "Failed to read image " << image_path << std::endl;
+    return -1;
+  }
+
   if (detector->useFloatImage())
   {
     image.convertTo(image, CV_32FC1);

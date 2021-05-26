@@ -5,7 +5,7 @@
 #include "perf/wrappers/vlfeat_wrapper.h"
 #include "perf/wrappers/vulkansift_wrapper.h"
 
-static const std::vector<std::string> detector_name_list = {"VulkanSIFT", "OpenCV", "VLFeat", "SiftGPU", "PopSift"};
+static const std::vector<std::string> detector_name_list = {"VulkanSift", "OpenCV", "VLFeat", "SiftGPU", "PopSift"};
 
 std::vector<std::string> getDetectorTypeNames() { return detector_name_list; }
 

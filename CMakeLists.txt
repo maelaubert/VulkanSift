@@ -135,9 +135,10 @@ endif()
 include("cmake/ShaderUtils.cmake")
 addEmbeddedSpvShaderDependency(vulkansift "${VULKANSIFT_LIB_SHADERS}" ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c)
 target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
+
 #####################################################################################
-
-
+##########################################################################
+# Example and perf executables
 
 if(VULKANSIFT_BUILD_EXAMPLES)
 message(STATUS "Examples will be built")
@@ -224,45 +225,8 @@ set_property(TARGET perf_sift_runtime APPEND_STRING PROPERTY LINK_FLAGS " ${VULK
 
 endif()
 
-# Copy image resource directory to build folder if examples or perf scripts are built
-if(VULKANSIFT_BUILD_EXAMPLES OR VULKANSIFT_BUILD_PERFS)
-
-# Add generation information for resource files in build folder
-file(GLOB_RECURSE RES_FILE_REL_PATHS RELATIVE ${CMAKE_SOURCE_DIR} res/*)
-message(STATUS "Generating copy commands for resource files")
-set(VULKANSIFT_RES_FILES "")
-foreach(res_file_rel_path ${RES_FILE_REL_PATHS})
-    set(output_file ${CMAKE_CURRENT_BINARY_DIR}/${res_file_rel_path})
-    add_custom_command(
-        OUTPUT ${output_file}
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/${res_file_rel_path} ${CMAKE_CURRENT_BINARY_DIR}/${res_file_rel_path}
-        DEPENDS ${CMAKE_SOURCE_DIR}/${res_file_rel_path}
-        COMMENT "Copying resource ${res_file_rel_path} to build folder"
-    )
-    set(VULKANSIFT_RES_FILES ${VULKANSIFT_RES_FILES} ${output_file} )
-endforeach()
-
-if(VULKANSIFT_BUILD_EXAMPLES)
-    # custom empty target that depends on all the resource files in the build folder
-    add_custom_target(vulkansift_res_copy ALL DEPENDS ${VULKANSIFT_RES_FILES}) 
-    # Add resource dependency to all test executables
-    add_dependencies(test_sift_detect vulkansift_res_copy)
-    add_dependencies(test_sift_match vulkansift_res_copy)
-    add_dependencies(test_sift_show_pyr vulkansift_res_copy)
-    if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE)
-        add_dependencies(test_sift_gpu_debug vulkansift_res_copy)
-    endif()
-endif()
-
-if(VULKANSIFT_BUILD_PERFS)
-    # Add resource dependency to all perf executables
-    add_dependencies(perf_sift_match vulkansift_res_copy)
-    add_dependencies(perf_sift_runtime vulkansift_res_copy)
-endif()
-
-endif()
-
-
+##########################################################################
+##########################################################################
 # Install library
 SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)

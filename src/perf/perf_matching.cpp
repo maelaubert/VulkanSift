@@ -61,8 +61,8 @@ void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<
 
 void printUsage()
 {
-  std::cout << "Usage 1: ./perf_sift_match SIFT_DETECTOR_NAME" << std::endl;
-  std::cout << "(for cross-detector matching you can use: ./perf_sift_match SIFT_DETECTOR_1_NAME SIFT_DETECTOR_2_NAME)" << std::endl;
+  std::cout << "Usage: ./perf_sift_match DATASET_PATH SIFT_DETECTOR_NAME" << std::endl;
+  std::cout << "(for cross-detector matching you can use: ./perf_sift_match DATASET_PATH SIFT_DETECTOR_1_NAME SIFT_DETECTOR_2_NAME)" << std::endl;
   std::cout << "Available detector names: " << std::endl;
   for (auto det_name : getDetectorTypeNames())
   {
@@ -74,14 +74,16 @@ int main(int argc, char *argv[])
 {
   //////////////////////////////////////////////////////////////////////////
   // Parameter handling to get name of requested SIFT detector/matcher
-  if (argc != 2 && argc != 3)
+  if (argc != 3 && argc != 4)
   {
     std::cout << "Error: wrong number of arguments" << std::endl;
     printUsage();
     return -1;
   }
 
-  std::string detector_name{argv[1]};
+  std::string dataset_path{argv[1]};
+
+  std::string detector_name{argv[2]};
   DETECTOR_TYPE detector_type;
   if (!getDetectorTypeFromName(detector_name, detector_type))
   {
@@ -98,9 +100,9 @@ int main(int argc, char *argv[])
   std::shared_ptr<AbstractSiftDetector> detector2 = detector1;
 
   bool with_second_detector = false;
-  if (argc == 3 && detector_name != std::string{argv[2]})
+  if (argc == 4 && detector_name != std::string{argv[3]})
   {
-    std::string detector2_name{argv[2]};
+    std::string detector2_name{argv[3]};
     DETECTOR_TYPE detector2_type;
     if (!getDetectorTypeFromName(detector2_name, detector2_type))
     {
@@ -119,7 +121,6 @@ int main(int argc, char *argv[])
 
   //////////////////////////////////////////////////////////////////////////
   // Read Homography dataset
-  std::string path_root = "res/feature_evaluation_data/";
   std::vector<std::string> dataset_names_vec = {"bark", "bikes", "boat", "graf", "leuven", "trees", "ubc", "wall"};
   std::cout << dataset_names_vec.size() << std::endl;
 
@@ -131,7 +132,13 @@ int main(int argc, char *argv[])
     {
       img_ext = ".pgm";
     }
-    cv::Mat img1 = cv::imread(path_root + dataset_name + "/img1" + img_ext, 0);
+    std::string img1_path = dataset_path + "/" + dataset_name + "/img1" + img_ext;
+    cv::Mat img1 = cv::imread(img1_path, 0);
+    if (img1.empty())
+    {
+      std::cout << "Failed to read image " << img1_path << std::endl;
+      return 0;
+    }
     if (detector1->useFloatImage())
     {
       img1.convertTo(img1, CV_32FC1);
@@ -145,13 +152,19 @@ int main(int argc, char *argv[])
     std::array<float, 9> homography;
     for (int n = 2; n <= 6; n++)
     {
-      std::string homography_info_path = path_root + dataset_name + "/H1to" + std::to_string(n) + "p";
+      std::string homography_info_path = dataset_path + "/" + dataset_name + "/H1to" + std::to_string(n) + "p";
       readHomographyInfoFile(homography_info_path, homography);
 
       std::vector<cv::KeyPoint> kp_imgN;
       cv::Mat desc_imgN;
 
-      cv::Mat imgN = cv::imread(path_root + dataset_name + "/img" + std::to_string(n) + img_ext, 0);
+      std::string imgN_path = dataset_path + "/" + dataset_name + "/img" + std::to_string(n) + img_ext;
+      cv::Mat imgN = cv::imread(imgN_path, 0);
+      if (imgN.empty())
+      {
+        std::cout << "Failed to read image " << imgN_path << std::endl;
+        return 0;
+      }
       if (detector2->useFloatImage())
       {
         imgN.convertTo(imgN, CV_32FC1);
