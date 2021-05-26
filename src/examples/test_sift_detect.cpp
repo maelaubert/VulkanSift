@@ -11,7 +11,7 @@ int main()
   vksift_setLogLevel(VKSIFT_LOG_INFO);
 
   // Load the Vulkan API (should never be called more than once per program)
-  if (!vksift_loadVulkan())
+  if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to initialize the Vulkan API" << std::endl;
     return -1;
@@ -20,7 +20,7 @@ int main()
   // Create a vksift instance using the default configuration
   vksift_Config config = vksift_getDefaultConfig();
   vksift_Instance vksift_instance = NULL;
-  if (!vksift_createInstance(&vksift_instance, &config))
+  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to create the vksift_instance" << std::endl;
     vksift_unloadVulkan();

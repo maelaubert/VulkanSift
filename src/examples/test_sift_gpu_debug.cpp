@@ -51,7 +51,7 @@ int main()
 
   vksift_setLogLevel(VKSIFT_LOG_DEBUG);
 
-  if (!vksift_loadVulkan())
+  if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to initialize the Vulkan API" << std::endl;
     return -1;
@@ -61,7 +61,7 @@ int main()
   // config.pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT16;
   config.use_hardware_interpolated_blur = true;
   vksift_Instance vksift_instance = NULL;
-  if (!vksift_createInstance(&vksift_instance, &config))
+  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     std::cout << "Impossible to create the vksift_instance" << std::endl;
     vksift_unloadVulkan();
@@ -69,7 +69,7 @@ int main()
   }
 
   // Setup the instance to use GPU debuggers
-  if (!vksift_setupGPUDebugWindow(vksift_instance, &window_info))
+  if (vksift_setupGPUDebugWindow(vksift_instance, &window_info) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     vksift_destroyInstance(&vksift_instance);
     vksift_unloadVulkan();

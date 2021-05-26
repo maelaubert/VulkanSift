@@ -14,7 +14,7 @@ extern "C"
   // Load/Unload the Vulkan API.
   // vksift_loadVulkan() must be called before the first VulkanSift function call and vksift_unloadVulkan() must be called after that last
   // VulkanSift function call.
-  bool vksift_loadVulkan();
+  vksift_ErrorType vksift_loadVulkan();
   void vksift_unloadVulkan();
 
   // Retrieve the names of the available GPU (GPUs must provide a Vulkan driver to be visible)
@@ -27,7 +27,7 @@ extern "C"
   // by the vksift_Config user configuration. It uses only one GPU device specified in the configuration (if not specified
   // the best available GPU should be automatically selected).
   typedef struct vksift_Instance_T *vksift_Instance;
-  bool vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
+  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
   void vksift_destroyInstance(vksift_Instance *instance_ptr);
   vksift_Config vksift_getDefaultConfig();
 
@@ -85,11 +85,11 @@ extern "C"
    * Debug functions
    *
    * WARNING | Only implemented when the library is built with the VULKANSIFT_WITH_GPU_DEBUG Cmake option.
-   *         | Return false and print a warning if this is not the case.
+   *         | Return VKSIFT_ERROR_TYPE_SUCCESS and print a warning if this is not the case.
    **/
 
   // Prepare the GPU Debug Window, must be called before using vksift_presentDebugFrame()
-  bool vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr);
+  vksift_ErrorType vksift_setupGPUDebugWindow(vksift_Instance instance, const vksift_ExternalWindowInfo *external_window_info_ptr);
   // Draw an empty frame in the debug window. Required to use graphics GPU debuggers/profilers such as RenderDoc or Nvidia Nsight
   // (They use frame delimiters to detect when to start/stop debugging and can't detect compute-only applications)
   void vksift_presentDebugFrame(vksift_Instance instance);

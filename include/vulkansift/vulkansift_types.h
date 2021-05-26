@@ -60,6 +60,19 @@ extern "C"
     VKSIFT_PYRAMID_PRECISION_FLOAT16
   } vksift_PyramidPrecisionMode;
 
+  typedef enum
+  {
+    VKSIFT_ERROR_TYPE_SUCCESS,
+
+    // VKSIFT_ERROR_TYPE_INVALID_INPUT errors are detected and returned early in the functions (before anything else was done).
+    // The state of the vksift_Instance is not affected and the instance can still be used.
+    VKSIFT_ERROR_TYPE_INVALID_INPUT,
+
+    // VKSIFT_ERROR_TYPE_VULKAN are errors related to the GPU and Vulkan API (like out of memory errors).
+    // After receiving this type of error, the vksift_Instance is invalid and should be directly destroyed.
+    VKSIFT_ERROR_TYPE_VULKAN
+  } vksift_ErrorType;
+
   typedef struct
   {
     // Input/Output configuration
@@ -108,10 +121,11 @@ extern "C"
     // switching to a VKSIFT_PYRAMID_PRECISION_FLOAT16 reduces the GPU memory usage by a factor of two, with a small impact on the feature quality.
     vksift_PyramidPrecisionMode pyramid_precision_mode;
 
-    // Error function that can be called by all VulkanSift functions except functions returning a status bool. This function is called when
-    // errors (invalid input arguments, Vulkan function failures) are detected by the VulkanSift function.
-    // Can be used by C++ users to throw exceptions inside the callback. (default: abort() function)
-    void (*on_error_callback_function)(void);
+    // Error function that can be called by all VulkanSift functions (except vksift_destroyX functions and functions returning a vksift_ErrorType).
+    // This function is called when errors (invalid input arguments, Vulkan function failures) are detected by the VulkanSift function.
+    // Can be used by C++ users to throw exceptions inside the callback. See the vksift_ErrorType description for information on what can be used/done
+    // after receiving errors. (default: wrapper around abort() function)
+    void (*on_error_callback_function)(vksift_ErrorType);
   } vksift_Config;
 
   ///////////////////////////////

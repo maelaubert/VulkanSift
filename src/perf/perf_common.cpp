@@ -11,7 +11,7 @@ std::vector<std::string> getDetectorTypeNames() { return detector_name_list; }
 
 bool getDetectorTypeFromName(std::string det_name, DETECTOR_TYPE &det_type)
 {
-  if (det_name == std::string{"VulkanSIFT"})
+  if (det_name == std::string{"VulkanSift"})
   {
     det_type = DETECTOR_TYPE::VULKANSIFT;
     return true;

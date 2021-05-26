@@ -2,7 +2,7 @@
 
 bool VulkanSiftDetector::init()
 {
-  if (!vksift_loadVulkan())
+  if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     return false;
   }
@@ -10,7 +10,7 @@ bool VulkanSiftDetector::init()
   config.use_hardware_interpolated_blur = true;
   config.input_image_max_size = 1920 * 2 * 1080 * 2;
   sift_instance = NULL;
-  if (!vksift_createInstance(&sift_instance, &config))
+  if (vksift_createInstance(&sift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
   {
     return false;
   }
