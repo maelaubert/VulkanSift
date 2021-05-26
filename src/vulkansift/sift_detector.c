@@ -92,6 +92,10 @@ static void setupGaussianKernels(vksift_SiftDetector detector)
     uint32_t kernel_size = (int)(ceilf(sep_kernel_sigma * 4.f) + 1.f);
     if (kernel_size > VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE)
     {
+      logWarning(LOG_TAG,
+                 "Required Gaussian kernel size (%d) is higher that the max kernel size (%d), additional coefficients will be ignored. "
+                 "Consider setting a smaller seed_scale_sigma value in the config structure.",
+                 kernel_size, VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE);
       kernel_size = VKSIFT_DETECTOR_MAX_GAUSSIAN_KERNEL_SIZE;
     }
     detector->gaussian_kernel_sizes[scale_i] = kernel_size;

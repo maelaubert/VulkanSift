@@ -56,8 +56,8 @@ extern "C"
 
   typedef enum
   {
-    VKSIFT_PYRAMID_PRECISION_FLOAT16,
-    VKSIFT_PYRAMID_PRECISION_FLOAT32
+    VKSIFT_PYRAMID_PRECISION_FLOAT32,
+    VKSIFT_PYRAMID_PRECISION_FLOAT16
   } vksift_PyramidPrecisionMode;
 
   typedef struct
@@ -107,6 +107,11 @@ extern "C"
     // Defines the scale-space image format precision (default: VKSIFT_PYRAMID_PRECISION_FLOAT32), images being the heaviest GPU resource
     // switching to a VKSIFT_PYRAMID_PRECISION_FLOAT16 reduces the GPU memory usage by a factor of two, with a small impact on the feature quality.
     vksift_PyramidPrecisionMode pyramid_precision_mode;
+
+    // Error function that can be called by all VulkanSift functions except functions returning a status bool. This function is called when
+    // errors (invalid input arguments, Vulkan function failures) are detected by the VulkanSift function.
+    // Can be used by C++ users to throw exceptions inside the callback. (default: abort() function)
+    void (*on_error_callback_function)(void);
   } vksift_Config;
 
   ///////////////////////////////

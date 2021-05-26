@@ -344,7 +344,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   VkDeviceSize image_staging_size = 4 * (memory->octave_resolutions[0].width * memory->octave_resolutions[0].height);
   res = res && vkenv_createBuffer(&memory->image_staging_buffer, memory->device, 0, image_staging_size,
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->image_staging_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->image_staging_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->image_staging_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
@@ -362,7 +365,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
                                  1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE,
                                  0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
-  vkGetImageMemoryRequirements(memory->device->device, memory->output_image, &memory_requirement);
+  if (res)
+  {
+    vkGetImageMemoryRequirements(memory->device->device, memory->output_image, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->output_image_memory, memory->device, memory_requirement.size, memory_type_idx);
   res = res && vkenv_bindImageMemory(memory->device, memory->output_image, memory->output_image_memory, 0u);
@@ -391,7 +397,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     res = res && vkenv_createBuffer(&memory->sift_buffer_arr[buff_idx], memory->device, 0, buffer_size,
                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                     VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-    vkGetBufferMemoryRequirements(memory->device->device, memory->sift_buffer_arr[buff_idx], &memory_requirement);
+    if (res)
+    {
+      vkGetBufferMemoryRequirements(memory->device->device, memory->sift_buffer_arr[buff_idx], &memory_requirement);
+    }
     res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
     res = res && vkenv_allocateMemory(&memory->sift_buffer_memory_arr[buff_idx], memory->device, memory_requirement.size, memory_type_idx);
     res = res && vkenv_bindBufferMemory(memory->device, memory->sift_buffer_arr[buff_idx], memory->sift_buffer_memory_arr[buff_idx], 0u);
@@ -409,7 +418,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
     VkDeviceSize info_buffer_size = sizeof(uint32_t) * memory->max_nb_octaves;
     res = res && vkenv_createBuffer(&memory->sift_count_staging_buffer_arr[buff_idx], memory->device, 0, info_buffer_size,
                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-    vkGetBufferMemoryRequirements(memory->device->device, memory->sift_count_staging_buffer_arr[buff_idx], &memory_requirement);
+    if (res)
+    {
+      vkGetBufferMemoryRequirements(memory->device->device, memory->sift_count_staging_buffer_arr[buff_idx], &memory_requirement);
+    }
     res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
     res = res && vkenv_allocateMemory(&memory->sift_count_staging_buffer_memory_arr[buff_idx], memory->device, memory_requirement.size, memory_type_idx);
@@ -427,7 +439,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   VkDeviceSize sift_staging_buffer_size = memory->max_nb_sift_per_buffer * sizeof(vksift_Feature) + sizeof(uint32_t);
   res = res && vkenv_createBuffer(&memory->sift_staging_buffer, memory->device, 0, sift_staging_buffer_size,
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->sift_staging_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->sift_staging_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->sift_staging_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
@@ -445,7 +460,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   res = true;
   res = res && vkenv_createBuffer(&memory->match_output_buffer, memory->device, 0, memory->max_nb_sift_per_buffer * sizeof(vksift_Match_2NN),
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->match_output_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->match_output_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->match_output_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
   res = res && vkenv_bindBufferMemory(memory->device, memory->match_output_buffer, memory->match_output_buffer_memory, 0u);
@@ -458,7 +476,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
   res = true;
   res = res && vkenv_createBuffer(&memory->match_output_staging_buffer, memory->device, 0, memory->max_nb_sift_per_buffer * sizeof(vksift_Match_2NN),
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->match_output_staging_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->match_output_staging_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement,
                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->match_output_staging_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
@@ -481,7 +502,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                   VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->indirect_orientation_dispatch_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->indirect_orientation_dispatch_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->indirect_orientation_dispatch_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
   res =
@@ -501,7 +525,10 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                   VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
-  vkGetBufferMemoryRequirements(memory->device->device, memory->indirect_descriptor_dispatch_buffer, &memory_requirement);
+  if (res)
+  {
+    vkGetBufferMemoryRequirements(memory->device->device, memory->indirect_descriptor_dispatch_buffer, &memory_requirement);
+  }
   res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
   res = res && vkenv_allocateMemory(&memory->indirect_descriptor_dispatch_buffer_memory, memory->device, memory_requirement.size, memory_type_idx);
   res = res && vkenv_bindBufferMemory(memory->device, memory->indirect_descriptor_dispatch_buffer, memory->indirect_descriptor_dispatch_buffer_memory, 0u);

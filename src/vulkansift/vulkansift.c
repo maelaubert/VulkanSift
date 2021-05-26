@@ -43,7 +43,8 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
                                               .descriptor_format = VKSIFT_DESCRIPTOR_FORMAT_UBC, // compatibility with OpenCV and SiftGPU
                                               .gpu_device_index = -1,                            // GPU auto-selection
                                               .use_hardware_interpolated_blur = true,            // faster with no noticeable quality loss
-                                              .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32};
+                                              .pyramid_precision_mode = VKSIFT_PYRAMID_PRECISION_FLOAT32,
+                                              .on_error_callback_function = abort};
 
 __attribute__((__visibility__("default"))) vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
 
@@ -128,6 +129,8 @@ typedef struct vksift_Instance_T
   vksift_SiftDetector sift_detector;
   vksift_SiftMatcher sift_matcher;
 
+  void (*error_cb_func)(void);
+
 #if defined(VKSIFT_GPU_DEBUG)
   vkenv_DebugPresenter debug_presenter;
 #endif
@@ -155,6 +158,8 @@ __attribute__((__visibility__("default"))) bool vksift_createInstance(vksift_Ins
   *instance_ptr = (vksift_Instance)malloc(sizeof(vksift_Instance_T));
   vksift_Instance instance = *instance_ptr;
   memset(instance, 0, sizeof(vksift_Instance_T));
+
+  instance->error_cb_func = config->on_error_callback_function;
 
   // Setup device
   // We need two async transfer queue to properly do async transfers, one is only used by the memory for GPU download/upload, the other is for
@@ -262,7 +267,7 @@ __attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Ins
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputResolutionValid(instance, image_width, image_height))
   {
     logError(LOG_TAG, "vksift_detectFeatures() error: invalid input.");
-    abort();
+    instance->error_cb_func();
   }
 
   // If a detection or matching pipeline is running, we wait for it to end
@@ -274,7 +279,7 @@ __attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Ins
   if (!vksift_prepareSiftMemoryForDetection(instance->sift_memory, image_data, image_width, image_height, gpu_buffer_id, &memory_layout_updated))
   {
     logError(LOG_TAG, "vksift_detectFeatures() error: Failed to prepare the SiftMemory instance for the input image and target buffer");
-    abort();
+    instance->error_cb_func();
   }
 
   // Run the sift detector algorithm
@@ -286,7 +291,7 @@ __attribute__((__visibility__("default"))) uint32_t vksift_getFeaturesNumber(vks
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
     logError(LOG_TAG, "vksift_getFeaturesNumber() error: invalid input.");
-    abort();
+    instance->error_cb_func();
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
@@ -300,7 +305,7 @@ __attribute__((__visibility__("default"))) uint32_t vksift_getFeaturesNumber(vks
   if (!vksift_Memory_getBufferFeatureCount(instance->sift_memory, gpu_buffer_id, &feat_count))
   {
     logError(LOG_TAG, "vksift_getFeaturesNumber() error when retrieving the number of detected SIFT features.");
-    abort();
+    instance->error_cb_func();
   }
   return feat_count;
 }
@@ -310,7 +315,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_I
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
     logError(LOG_TAG, "vksift_downloadFeatures() error: invalid input.");
-    abort();
+    instance->error_cb_func();
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
@@ -323,7 +328,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_I
   if (!vksift_Memory_copyBufferFeaturesFromGPU(instance->sift_memory, gpu_buffer_id, feats_ptr))
   {
     logError(LOG_TAG, "vksift_downloadFeatures() error when downloading detection results.");
-    abort();
+    instance->error_cb_func();
   }
 }
 
@@ -333,7 +338,7 @@ __attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Ins
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputFeatureCoundValid(instance, nb_feats))
   {
     logError(LOG_TAG, "vksift_uploadFeatures() error: invalid input.");
-    abort();
+    instance->error_cb_func();
   }
 
   // If a GPU task is currently using the buffer, wait for it to be available
@@ -346,7 +351,7 @@ __attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Ins
   if (!vksift_Memory_copyBufferFeaturesToGPU(instance->sift_memory, gpu_buffer_id, feats_ptr, nb_feats))
   {
     logError(LOG_TAG, "vksift_uploadFeatures() error when uploading SIFT features to GPU memory.");
-    abort();
+    instance->error_cb_func();
   }
 }
 
@@ -355,7 +360,7 @@ __attribute__((__visibility__("default"))) void vksift_matchFeatures(vksift_Inst
   if (!isBufferIdxValid(instance, gpu_buffer_id_A) || !isBufferIdxValid(instance, gpu_buffer_id_B))
   {
     logError(LOG_TAG, "vksift_matchFeatures() error: invalid input.");
-    abort();
+    instance->error_cb_func();
   }
 
   // If a detection or matching pipeline is running, we wait for it to end
@@ -369,7 +374,7 @@ __attribute__((__visibility__("default"))) void vksift_matchFeatures(vksift_Inst
   else
   {
     logError(LOG_TAG, "vksift_matchFeatures() error: Failed to prepare the SIFT buffers for the matching pipeline.");
-    abort();
+    instance->error_cb_func();
   }
 }
 
@@ -389,7 +394,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadMatches(vksift_In
   if (!vksift_Memory_copyBufferMatchesFromGPU(instance->sift_memory, matches))
   {
     logError(LOG_TAG, "vksift_downloadMatches() error when downloading SIFT matches from GPU memory.");
-    abort();
+    instance->error_cb_func();
   }
 }
 
@@ -407,7 +412,7 @@ __attribute__((__visibility__("default"))) void vksift_getScaleSpaceOctaveResolu
   {
     logError(LOG_TAG, "vksift_getScaleSpaceOctaveResolution() error: invalid input. Requested octave idx is %d but the current number of octave is %d",
              octave, instance->sift_memory->curr_nb_octaves);
-    abort();
+    instance->error_cb_func();
   }
   *octave_images_width = instance->sift_memory->octave_resolutions[octave].width;
   *octave_images_height = instance->sift_memory->octave_resolutions[octave].height;
@@ -428,7 +433,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadScaleSpaceImage(v
   if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, false, blurred_image))
   {
     logError(LOG_TAG, "vksift_downloadScaleSpaceImage() error when downloading pyramid blurred image from GPU memory.");
-    abort();
+    instance->error_cb_func();
   }
 }
 
@@ -447,7 +452,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadDoGImage(vksift_I
   if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, true, dog_image))
   {
     logError(LOG_TAG, "vksift_downloadDoGImage() error when downloading pyramid DoG image from GPU memory.");
-    abort();
+    instance->error_cb_func();
   }
 }
 ///////////////////////////////////////////////////////////////////////
@@ -481,7 +486,7 @@ __attribute__((__visibility__("default"))) void vksift_presentDebugFrame(vksift_
   if (!vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter))
   {
     logError(LOG_TAG, "vksift_presentDebugFrame(): error when rendering a debug frame to the provided window.");
-    abort();
+    instance->error_cb_func();
   }
 #else
   logWarning(LOG_TAG, "vksift_presentDebugFrame() was called but library was not built with GPU DEBUG capabilities.");
@@ -506,10 +511,11 @@ static bool isConfigurationValid(const vksift_Config *config)
   bool valid_seed_gaussian_kernel = ((config->use_input_upsampling ? 2.f : 1.f) * config->input_image_blur_level) <= config->seed_scale_sigma;
 
   bool config_valid = true;
-  config_valid &= checkConfigCond(config->input_image_max_size > 0, "Invalid configuration: input image size must be more than zero");
-  config_valid &= checkConfigCond(config->sift_buffer_count > 0, "Invalid configuration: number of SIFT buffers must be more than zero");
-  config_valid &= checkConfigCond(config->max_nb_sift_per_buffer > 0, "Invalid configuration: number of SIFT features per buffers must be more than zero");
-  config_valid &= checkConfigCond(config->nb_scales_per_octave > 0, "Invalid configuration: number of scales per octave must be more than zero");
+  config_valid &= checkConfigCond(config->input_image_max_size >= 1024, "Invalid configuration: input image size must be greater than or equal to 1024");
+  config_valid &= checkConfigCond(config->sift_buffer_count > 0, "Invalid configuration: number of SIFT buffers must be greater than zero");
+  config_valid &=
+      checkConfigCond(config->max_nb_sift_per_buffer > 0, "Invalid configuration: number of SIFT features per buffers must be greater than zero");
+  config_valid &= checkConfigCond(config->nb_scales_per_octave > 0, "Invalid configuration: number of scales per octave must be greater than zero");
   config_valid &= checkConfigCond(config->input_image_blur_level >= 0.f, "Invalid configuration: input image blur level cannot be negative");
   config_valid &= checkConfigCond(config->seed_scale_sigma >= 0, "Invalid configuration: seed scale blur level cannot be negative");
   config_valid &=
@@ -518,6 +524,7 @@ static bool isConfigurationValid(const vksift_Config *config)
   config_valid &= checkConfigCond(config->intensity_threshold >= 0.f, "Invalid configuration: the DoG intensity threshold cannot be negative");
   config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
   config_valid &= checkConfigCond(config->edge_threshold >= 0.f, "Invalid configuration: the DoG edge threshold cannot be negative");
+  config_valid &= checkConfigCond(config->on_error_callback_function != NULL, "Invalid configuration: the error callback function must not be NULL");
 
   switch (config->pyramid_precision_mode)
   {
@@ -553,8 +560,8 @@ static bool isInputResolutionValid(vksift_Instance instance, const uint32_t inpu
   uint32_t input_size = input_width * input_height;
   if (input_size > instance->sift_memory->max_image_size)
   {
-    logError(LOG_TAG, "Provided input image size (%d*%d=%d) is more than the configured maximum image size (%d).", input_width, input_height, input_size,
-             instance->sift_memory->max_image_size);
+    logError(LOG_TAG, "Provided input image size (%d*%d=%d) is greater than the configured maximum image size (%d).", input_width, input_height,
+             input_size, instance->sift_memory->max_image_size);
     return false;
   }
   else
@@ -567,7 +574,7 @@ static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb
 {
   if (nb_feats > instance->sift_memory->max_nb_sift_per_buffer)
   {
-    logError(LOG_TAG, "Provided features count (%d) is more than the configured maximum number of features per GPU buffer size (%d).", nb_feats,
+    logError(LOG_TAG, "Provided features count (%d) is greater than the configured maximum number of features per GPU buffer size (%d).", nb_feats,
              instance->sift_memory->max_nb_sift_per_buffer);
     return false;
   }
