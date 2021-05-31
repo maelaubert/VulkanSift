@@ -30,7 +30,7 @@ void PopSiftDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypo
     {
       for (int j = 0; j < res1->getFeatures()[i].num_ori; j++)
       {
-        keypoints.push_back(cv::KeyPoint{cv::Point2f{res1->getFeatures()[i].xpos, res1->getFeatures()[i].ypos}, 0});
+        keypoints.push_back(cv::KeyPoint{cv::Point2f{res1->getFeatures()[i].xpos, res1->getFeatures()[i].ypos}, res1->getFeatures()[i].sigma});
         nb_feat_1++;
       }
     }
@@ -49,6 +49,10 @@ void PopSiftDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypo
         cnt++;
       }
     }
+  }
+  else
+  {
+    keypoints.resize(nb_feat);
   }
 
   delete job1;

@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
   float mean_duration = float(sum_duration) / float(NB_ITER_MEAS);
 
   // Write them to output file
-  std::string res_str = std::to_string(mean_duration) + " ms" + "\n";
+  std::string res_str = std::to_string(mean_duration) + ";" + std::to_string(keypoints.size()) + "\n";
   result_file.write(res_str.c_str(), res_str.size());
 
   detector->terminate();

@@ -40,12 +40,16 @@ void VulkanSiftDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &ke
     for (int i = 0; i < (int)img_kps.size(); i++)
     {
       // Copy keypoint
-      keypoints.push_back(cv::KeyPoint{cv::Point2f{img_kps[i].x, img_kps[i].y}, 0});
+      keypoints.push_back(cv::KeyPoint{cv::Point2f{img_kps[i].x, img_kps[i].y}, img_kps[i].sigma});
       // Copy descriptor
       for (int j = 0; j < 128; j++)
       {
         descs.at<uint8_t>(i, j) = img_kps[i].descriptor[j];
       }
     }
+  }
+  else
+  {
+    keypoints.resize(img_kps.size());
   }
 }

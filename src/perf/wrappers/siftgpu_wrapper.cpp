@@ -34,7 +34,7 @@ void SiftGPUDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypo
     keypoints.clear();
     for (int i = 0; i < nb_sift_found1; i++)
     {
-      keypoints.push_back(cv::KeyPoint{cv::Point2f{(float)keypoints1[i].x, (float)keypoints1[i].y}, 0});
+      keypoints.push_back(cv::KeyPoint{cv::Point2f{(float)keypoints1[i].x, (float)keypoints1[i].y}, keypoints1[i].s});
     }
 
     descs.create(nb_sift_found1, 128, CV_8U);
@@ -45,5 +45,9 @@ void SiftGPUDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypo
         descs.at<uint8_t>(i, j) = static_cast<uint8_t>(descriptors1[i * 128 + j] * 512.f);
       }
     }
+  }
+  else
+  {
+    keypoints.resize(keypoints1.size());
   }
 }

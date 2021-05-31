@@ -43,7 +43,7 @@ void VLFeatDetector::detectSIFT(cv::Mat image, std::vector<cv::KeyPoint> &keypoi
         vl_sift_calc_keypoint_descriptor(vlsift, flt_desc_arr, vl_keypoints + kpt_i, angles[ori_i]);
         if (convert_and_copy_to_cv_format)
         {
-          keypoints.push_back(cv::KeyPoint{cv::Point2f{vl_keypoints[kpt_i].x, vl_keypoints[kpt_i].y}, 0});
+          keypoints.push_back(cv::KeyPoint{cv::Point2f{vl_keypoints[kpt_i].x, vl_keypoints[kpt_i].y}, vl_keypoints[kpt_i].sigma});
         }
 
         std::array<uint8_t, 128> desc;

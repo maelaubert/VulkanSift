@@ -27,9 +27,27 @@ void readHomographyInfoFile(const std::string &file_path, std::array<float, 9> &
   std::cout << std::endl;
 }
 
-void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<CommonPoint> &matches_img1, const std::vector<CommonPoint> &matches_img2,
-                    std::array<float, 9> H1to2, float &putative_match_ratio, float &precision, float &matching_score)
+void computeMetrics(cv::Mat &img1, cv::Mat &img2, const std::vector<cv::KeyPoint> &kp_img1, const std::vector<cv::KeyPoint> &kp_img2,
+                    const std::vector<CommonPoint> &matches_img1, const std::vector<CommonPoint> &matches_img2, std::array<float, 9> H1to2,
+                    float &repeatability, float &putative_match_ratio, float &precision, float &matching_score)
 {
+  // Use OpenCV to compute repeatability score
+  cv::Mat H_mat;
+  H_mat.create(3, 3, CV_32F);
+  H_mat.at<float>(0, 0) = H1to2[0];
+  H_mat.at<float>(0, 1) = H1to2[1];
+  H_mat.at<float>(0, 2) = H1to2[2];
+  H_mat.at<float>(1, 0) = H1to2[3];
+  H_mat.at<float>(1, 1) = H1to2[4];
+  H_mat.at<float>(1, 2) = H1to2[5];
+  H_mat.at<float>(2, 0) = H1to2[6];
+  H_mat.at<float>(2, 1) = H1to2[7];
+  H_mat.at<float>(2, 2) = H1to2[8];
+  std::vector<cv::KeyPoint> kp1 = kp_img1;
+  std::vector<cv::KeyPoint> kp2 = kp_img2;
+  int nb_corresp;
+  cv::evaluateFeatureDetector(img1, img2, H_mat, &kp1, &kp2, repeatability, nb_corresp);
+
   // Check number of valid matches (w.r.t homography)
   int cnt_inliers = 0;
   for (int i = 0; i < (int)matches_img1.size(); i++)
@@ -54,6 +72,7 @@ void computeMetrics(const std::vector<cv::KeyPoint> &kp_img1, const std::vector<
   // Precision
   matching_score = (float)cnt_inliers / (float)kp_img1.size();
 
+  std::cout << "repeatability: " << repeatability << std::endl;
   std::cout << "putative_match_ratio: " << putative_match_ratio << std::endl;
   std::cout << "precision: " << precision << std::endl;
   std::cout << "matching_score: " << matching_score << std::endl;
@@ -177,13 +196,13 @@ int main(int argc, char *argv[])
       std::vector<CommonPoint> matches_img1, matches_img2;
       matchFeatures(img1, imgN, kp_img1, desc_img1, kp_imgN, desc_imgN, matches_img1, matches_img2, false);
 
-      float putative_match_ratio, precision, matching_score;
+      float repeatability, putative_match_ratio, precision, matching_score;
 
       // Get metrics
-      computeMetrics(kp_img1, matches_img1, matches_img2, homography, putative_match_ratio, precision, matching_score);
+      computeMetrics(img1, imgN, kp_img1, kp_imgN, matches_img1, matches_img2, homography, repeatability, putative_match_ratio, precision, matching_score);
       // Write them to output file
-      std::string res_str = dataset_name + ";" + std::to_string(1) + ";" + std::to_string(n + 1) + ";" + std::to_string(putative_match_ratio) + ";" +
-                            std::to_string(precision) + ";" + std::to_string(matching_score) + "\n";
+      std::string res_str = dataset_name + ";" + std::to_string(1) + ";" + std::to_string(n + 1) + ";" + std::to_string(repeatability) + ";" +
+                            std::to_string(putative_match_ratio) + ";" + std::to_string(precision) + ";" + std::to_string(matching_score) + "\n";
       result_file.write(res_str.c_str(), res_str.size());
     }
   }

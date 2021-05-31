@@ -1,8 +1,5 @@
 .vscode
 build
 
-# Perf related
-res/feature_evaluation_data
-external_libs/vlfeat
-external_libs/SiftGPU
-external_libs/popsift
+res/*
+external_libs/*
