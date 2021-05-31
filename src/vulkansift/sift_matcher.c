@@ -388,7 +388,7 @@ bool vksift_createSiftMatcher(vkenv_Device device, vksift_SiftMemory memory, vks
   }
 
   matcher->curr_buffer_A_idx = 0u;
-  matcher->curr_buffer_B_idx = 1u;
+  matcher->curr_buffer_B_idx = (memory->nb_sift_buffer > 1) ? 1u : 0u;
 
   // Try to find GPU debug marker functions
   getGPUDebugMarkerFuncs(matcher);

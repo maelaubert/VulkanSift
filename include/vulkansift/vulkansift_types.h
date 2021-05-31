@@ -32,11 +32,11 @@ extern "C"
 
   typedef struct
   {
-    uint32_t idx_a;
-    uint32_t idx_b1;
-    uint32_t idx_b2;
-    float dist_a_b1;
-    float dist_a_b2;
+    uint32_t idx_a;  // feature index in the feature set A
+    uint32_t idx_b1; // nearest neighbor feature index in the feature set B
+    uint32_t idx_b2; // second nearest neighbor feature index in the feature set B
+    float dist_a_b1; // descriptors L2 distance between the set A feature and the nearest neighbor
+    float dist_a_b2; // same as dist_a_b1 but with the second nearest neighbor
   } vksift_Match_2NN;
 
   typedef enum
@@ -62,16 +62,16 @@ extern "C"
 
   typedef enum
   {
-    VKSIFT_ERROR_TYPE_SUCCESS,
+    VKSIFT_SUCCESS,
 
-    // VKSIFT_ERROR_TYPE_INVALID_INPUT errors are detected and returned early in the functions (before anything else was done).
+    // VKSIFT_INVALID_INPUT_ERROR errors are detected and returned early in the functions (before anything else was done).
     // The state of the vksift_Instance is not affected and the instance can still be used.
-    VKSIFT_ERROR_TYPE_INVALID_INPUT,
+    VKSIFT_INVALID_INPUT_ERROR,
 
-    // VKSIFT_ERROR_TYPE_VULKAN are errors related to the GPU and Vulkan API (like out of memory errors).
+    // VKSIFT_VULKAN_ERROR are errors related to the GPU and Vulkan API (like out of memory errors).
     // After receiving this type of error, the vksift_Instance is invalid and should be directly destroyed.
-    VKSIFT_ERROR_TYPE_VULKAN
-  } vksift_ErrorType;
+    VKSIFT_VULKAN_ERROR
+  } vksift_Result;
 
   ///////////////////////////////
   // For GPU debugging only
@@ -134,7 +134,10 @@ extern "C"
     // (default: VKSIFT_DESCRIPTOR_FORMAT_UBC)
     vksift_DescriptorFormat descriptor_format;
 
-    // GPU and implementation configuration (if <0 the GPU with highest expected performance is selected) (default: -1)
+    // GPU and implementation configuration
+
+    // Define the GPU used by the Instance. For a given GPU, the device index should the same as its corresponding name index when retrieved
+    // with vksift_getAvailableGPUs(). If gpu_device_index<0 the GPU with highest expected performance is selected. (default: -1)
     int32_t gpu_device_index;
     // If true, the GPU hardware texture samplers will be used to speed up the Gaussian scale-space construction. (default: true)
     bool use_hardware_interpolated_blur;
@@ -142,16 +145,20 @@ extern "C"
     // switching to a VKSIFT_PYRAMID_PRECISION_FLOAT16 reduces the GPU memory usage by a factor of two, with a small impact on the feature quality.
     vksift_PyramidPrecisionMode pyramid_precision_mode;
 
-    // Error function that can be called by all VulkanSift functions (except vksift_destroyX functions and functions returning a vksift_ErrorType).
+    // Error function that can be called by all VulkanSift functions (except vksift_destroyX functions and functions returning a vksift_Result).
     // This function is called when errors (invalid input arguments, Vulkan function failures) are detected by the VulkanSift function.
-    // Can be used by C++ users to throw exceptions inside the callback. See the vksift_ErrorType description for information on what can be used/done
+    // Can be used by C++ users to throw exceptions inside the callback. See the vksift_Result description for information on what can be used/done
     // after receiving errors. (default: wrapper around abort() function)
-    void (*on_error_callback_function)(vksift_ErrorType);
+    void (*on_error_callback_function)(vksift_Result);
+
+    // GPU configuration to use GPU debugger/profilers
 
     // Set to true and fill the data in external_window_info to be able to use vksift_presentDebugFrame() and profile applications
-    // with GPU debuggers/profilers
+    // with GPU debuggers/profilers. (default: false)
     bool use_gpu_debug_functions;
+    // Check the vksift_ExternalWindowInfo for information on how to fill this structure. (default: {context=NULL, window=NULL})
     vksift_ExternalWindowInfo gpu_debug_external_window_info;
+
   } vksift_Config;
 
 #ifdef __cplusplus

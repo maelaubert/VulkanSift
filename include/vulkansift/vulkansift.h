@@ -14,30 +14,30 @@ extern "C"
   // Load/Unload the Vulkan API.
   // vksift_loadVulkan() must be called before the first VulkanSift function call and vksift_unloadVulkan() must be called after that last
   // VulkanSift function call.
-  vksift_ErrorType vksift_loadVulkan();
+  vksift_Result vksift_loadVulkan();
   void vksift_unloadVulkan();
 
-  // Retrieve the names of the available GPU (GPUs must provide a Vulkan driver to be visible)
+  // Retrieve the name of the available GPU(s) (GPUs must support Vulkan to be visible)
   // If gpu_names is NULL, fill gpu_count with the number of available GPU.
-  // If gpu_names is not NULL, copy the first gpu_count VKSIFT_GPU_NAMES to the gpu_names buffer.
+  // If gpu_names is not NULL, copy a number of VKSIFT_GPU_NAMES defined by gpu_count to the gpu_names buffer.
   void vksift_getAvailableGPUs(uint32_t *gpu_count, VKSIFT_GPU_NAME *gpu_names);
   void vksift_setLogLevel(const vksift_LogLevel level);
 
   // Create and destroy a vksift_Instance. A vksift_Instance manages GPU resources, detection and matching pipelines as configured
   // by the vksift_Config user configuration. It uses only one GPU device specified in the configuration (if not specified
   // the best available GPU should be automatically selected).
-  // vksift_ExternalWindowInfo pointer is only needed to debug/profile VulkanSift GPU functions and use vksift_presentDebugFrame(),
-  // it can be left to NULL if not needed.
   typedef struct vksift_Instance_T *vksift_Instance;
-  vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
+  vksift_Result vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config);
   void vksift_destroyInstance(vksift_Instance *instance_ptr);
   vksift_Config vksift_getDefaultConfig();
 
   /**
    * Detection/Matching pipelines
    *
-   * vksift_detectFeatures() and vksift_matchFeatures() are both NON-BLOCKING. This means that the functions return as soon as the
-   * detection/matching pipelines are started without waiting for the results to be available.
+   * vksift_detectFeatures() and vksift_matchFeatures() calls DO NOT WAIT for the results to be available.
+   * This means that the functions return as soon as the detection/matching pipelines are started without waiting
+   * for the results to be available. However, is a detection/matching pipeline is already running, it must wait
+   * the end of the previous pipeline before starting the new one.
    **/
 
   // Copy the image to the GPU and start the detection pipeline on the GPU. Detected features will be stored on the
@@ -68,9 +68,11 @@ extern "C"
   void vksift_uploadFeatures(vksift_Instance instance, const vksift_Feature *feats_ptr, const uint32_t nb_feats, const uint32_t gpu_buffer_id);
   // Return the number of matches found. (same as the number of features in the buffer A used in the last call to vksift_matchFeatures())
   uint32_t vksift_getMatchesNumber(vksift_Instance instance);
+  // Copy GPU matches information (vksift_Match_2NN) to the matches buffer.
   void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
 
   // Get the buffer availability status. Return true if the GPU is not using the buffer for a detection/matching task, false otherwise.
+  // Can be used to check for the result or device availability and avoid long CPU blocking calls.
   bool vksift_isBufferAvailable(vksift_Instance instance, const uint32_t gpu_buffer_id);
 
   // Scale-space access functions (for debug and visualization)
@@ -78,9 +80,9 @@ extern "C"
   uint8_t vksift_getScaleSpaceNbOctaves(vksift_Instance instance);
   // Return the image resolution used for the specified octave.
   void vksift_getScaleSpaceOctaveResolution(vksift_Instance instance, const uint8_t octave, uint32_t *octave_images_width, uint32_t *octave_images_height);
-  // Copy the selected Gaussian image data to the blurred_image float buffer. (scale value in [0, config.nb_scales_per_octave+2])
+  // Copy the selected Gaussian image data to the blurred_image float buffer. (scale value in [0, config.nb_scales_per_octave+3[ )
   void vksift_downloadScaleSpaceImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *blurred_image);
-  // Copy the selected Difference of Gaussian image data to the blurred_image float buffer. (scale value in [0, config.nb_scales_per_octave+1])
+  // Copy the selected Difference of Gaussian image data to the blurred_image float buffer. (scale value in [0, config.nb_scales_per_octave+2[ )
   void vksift_downloadDoGImage(vksift_Instance instance, const uint8_t octave, const uint8_t scale, float *dog_image);
 
   /**

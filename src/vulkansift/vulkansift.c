@@ -28,14 +28,14 @@ static bool isInputFeatureCoundValid(vksift_Instance instance, const uint32_t nb
 static bool isInputOctaveIdxValid(vksift_Instance instance, const uint32_t octave_idx);
 static bool isInputScaleIdxValid(vksift_Instance instance, const uint32_t scale_idx, bool is_dog);
 
-static void default_error_callback(vksift_ErrorType err_type)
+static void default_error_callback(vksift_Result err_type)
 {
   switch (err_type)
   {
-  case VKSIFT_ERROR_TYPE_INVALID_INPUT:
+  case VKSIFT_INVALID_INPUT_ERROR:
     logDebug(LOG_TAG, "Aborting after invalid input error...");
     break;
-  case VKSIFT_ERROR_TYPE_VULKAN:
+  case VKSIFT_VULKAN_ERROR:
     logDebug(LOG_TAG, "Aborting after Vulkan error...");
     break;
   default:
@@ -65,7 +65,7 @@ static vksift_Config vksift_Config_Default = {.input_image_max_size = 1920u * 10
 
 __attribute__((__visibility__("default"))) vksift_Config vksift_getDefaultConfig() { return vksift_Config_Default; }
 
-__attribute__((__visibility__("default"))) vksift_ErrorType vksift_loadVulkan()
+__attribute__((__visibility__("default"))) vksift_Result vksift_loadVulkan()
 {
   vkenv_InstanceConfig instance_config = {.application_name = "VulkanSift",
                                           .application_version = VK_MAKE_VERSION(1, 0, 0),
@@ -102,11 +102,11 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_loadVulkan()
     if (!vkenv_createInstance(&instance_config))
     {
       logError(LOG_TAG, "vksift_loadVulkan() failure when seting up the Vulkan instance.");
-      return VKSIFT_ERROR_TYPE_VULKAN;
+      return VKSIFT_VULKAN_ERROR;
     }
   }
   logInfo(LOG_TAG, "vksift_loadVulkan() success");
-  return VKSIFT_ERROR_TYPE_SUCCESS;
+  return VKSIFT_SUCCESS;
 }
 
 __attribute__((__visibility__("default"))) void vksift_unloadVulkan() { vkenv_destroyInstance(); }
@@ -162,26 +162,27 @@ typedef struct vksift_Instance_T
   vksift_SiftMatcher sift_matcher;
   vkenv_DebugPresenter debug_presenter; // NULL if vksift_ExternalWindowInfo is not provided
 
-  void (*error_cb_func)(vksift_ErrorType);
+  void (*error_cb_func)(vksift_Result);
 } vksift_Instance_T;
 
-__attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
+__attribute__((__visibility__("default"))) vksift_Result vksift_createInstance(vksift_Instance *instance_ptr, const vksift_Config *config)
 {
   assert(instance_ptr != NULL);
+  assert(*instance_ptr == NULL);
   assert(config != NULL);
 
   // Check that the Vulkan instance is available
   if (vkenv_getInstance() == NULL)
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Vulkan API not available. vksift_loadVulkan() must be called before using this function.");
-    return VKSIFT_ERROR_TYPE_VULKAN;
+    return VKSIFT_VULKAN_ERROR;
   }
 
   // Check configuration validity
   if (!isConfigurationValid(config))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Invalid configuration detected.");
-    return VKSIFT_ERROR_TYPE_INVALID_INPUT;
+    return VKSIFT_INVALID_INPUT_ERROR;
   }
 
   *instance_ptr = (vksift_Instance)malloc(sizeof(vksift_Instance_T));
@@ -211,28 +212,28 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstanc
   {
     logError(LOG_TAG, "vksift_createInstance() failure: An error occured when creating the Vulkan device");
     vksift_destroyInstance(instance_ptr);
-    return VKSIFT_ERROR_TYPE_VULKAN;
+    return VKSIFT_VULKAN_ERROR;
   }
 
   if (!vksift_createSiftMemory(instance->vulkan_device, &instance->sift_memory, config))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the required memory objects");
     vksift_destroyInstance(instance_ptr);
-    return VKSIFT_ERROR_TYPE_VULKAN;
+    return VKSIFT_VULKAN_ERROR;
   }
 
   if (!vksift_createSiftDetector(instance->vulkan_device, instance->sift_memory, &instance->sift_detector, config))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the SIFT detector");
     vksift_destroyInstance(instance_ptr);
-    return VKSIFT_ERROR_TYPE_VULKAN;
+    return VKSIFT_VULKAN_ERROR;
   }
 
   if (!vksift_createSiftMatcher(instance->vulkan_device, instance->sift_memory, &instance->sift_matcher))
   {
     logError(LOG_TAG, "vksift_createInstance() failure: Failed to setup the SIFT matcher");
     vksift_destroyInstance(instance_ptr);
-    return VKSIFT_ERROR_TYPE_VULKAN;
+    return VKSIFT_VULKAN_ERROR;
   }
 
   if (config->use_gpu_debug_functions)
@@ -241,7 +242,7 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstanc
     {
       logError(LOG_TAG, "vksift_createInstance() failure: external window information specified but Vulkan instance doesn't support rendering.");
       vksift_destroyInstance(instance_ptr);
-      return VKSIFT_ERROR_TYPE_VULKAN;
+      return VKSIFT_VULKAN_ERROR;
     }
 
     // Setup the DebugPresenter from the external window informations
@@ -251,12 +252,12 @@ __attribute__((__visibility__("default"))) vksift_ErrorType vksift_createInstanc
     {
       logError(LOG_TAG, "vksift_createInstance() failure: An error occured when preparing the debug window");
       vksift_destroyInstance(instance_ptr);
-      return VKSIFT_ERROR_TYPE_VULKAN;
+      return VKSIFT_VULKAN_ERROR;
     }
   }
 
   logInfo(LOG_TAG, "vksift_createInstance() success");
-  return VKSIFT_ERROR_TYPE_SUCCESS;
+  return VKSIFT_SUCCESS;
 }
 
 __attribute__((__visibility__("default"))) void vksift_destroyInstance(vksift_Instance *instance_ptr)
@@ -317,7 +318,7 @@ __attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Ins
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputResolutionValid(instance, image_width, image_height))
   {
     logError(LOG_TAG, "vksift_detectFeatures() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -330,7 +331,7 @@ __attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Ins
   if (!vksift_prepareSiftMemoryForDetection(instance->sift_memory, image_data, image_width, image_height, gpu_buffer_id, &memory_layout_updated))
   {
     logError(LOG_TAG, "vksift_detectFeatures() error: Failed to prepare the SiftMemory instance for the input image and target buffer");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
     return;
   }
 
@@ -338,7 +339,7 @@ __attribute__((__visibility__("default"))) void vksift_detectFeatures(vksift_Ins
   if (!vksift_dispatchSiftDetection(instance->sift_detector, gpu_buffer_id, memory_layout_updated))
   {
     logError(LOG_TAG, "vksift_detectFeatures() error: Failed to start the detection pipeline.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -347,7 +348,7 @@ __attribute__((__visibility__("default"))) uint32_t vksift_getFeaturesNumber(vks
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
     logError(LOG_TAG, "vksift_getFeaturesNumber() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return 0;
   }
 
@@ -362,7 +363,7 @@ __attribute__((__visibility__("default"))) uint32_t vksift_getFeaturesNumber(vks
   if (!vksift_Memory_getBufferFeatureCount(instance->sift_memory, gpu_buffer_id, &feat_count))
   {
     logError(LOG_TAG, "vksift_getFeaturesNumber() error when retrieving the number of detected SIFT features.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
   return feat_count;
 }
@@ -372,7 +373,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_I
   if (!isBufferIdxValid(instance, gpu_buffer_id))
   {
     logError(LOG_TAG, "vksift_downloadFeatures() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -386,7 +387,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadFeatures(vksift_I
   if (!vksift_Memory_copyBufferFeaturesFromGPU(instance->sift_memory, gpu_buffer_id, feats_ptr))
   {
     logError(LOG_TAG, "vksift_downloadFeatures() error when downloading detection results.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -396,7 +397,7 @@ __attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Ins
   if (!isBufferIdxValid(instance, gpu_buffer_id) || !isInputFeatureCoundValid(instance, nb_feats))
   {
     logError(LOG_TAG, "vksift_uploadFeatures() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -410,7 +411,7 @@ __attribute__((__visibility__("default"))) void vksift_uploadFeatures(vksift_Ins
   if (!vksift_Memory_copyBufferFeaturesToGPU(instance->sift_memory, gpu_buffer_id, feats_ptr, nb_feats))
   {
     logError(LOG_TAG, "vksift_uploadFeatures() error when uploading SIFT features to GPU memory.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -419,7 +420,7 @@ __attribute__((__visibility__("default"))) void vksift_matchFeatures(vksift_Inst
   if (!isBufferIdxValid(instance, gpu_buffer_id_A) || !isBufferIdxValid(instance, gpu_buffer_id_B))
   {
     logError(LOG_TAG, "vksift_matchFeatures() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -430,13 +431,13 @@ __attribute__((__visibility__("default"))) void vksift_matchFeatures(vksift_Inst
   if (!vksift_prepareSiftMemoryForMatching(instance->sift_memory, gpu_buffer_id_A, gpu_buffer_id_B))
   {
     logError(LOG_TAG, "vksift_matchFeatures() error: Failed to prepare the SIFT buffers for the matching pipeline.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 
   if (!vksift_dispatchSiftMatching(instance->sift_matcher, gpu_buffer_id_A, gpu_buffer_id_B))
   {
     logError(LOG_TAG, "vksift_matchFeatures() error: Failed to start the matching pipeline.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -456,7 +457,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadMatches(vksift_In
   if (!vksift_Memory_copyBufferMatchesFromGPU(instance->sift_memory, matches))
   {
     logError(LOG_TAG, "vksift_downloadMatches() error when downloading SIFT matches from GPU memory.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -474,7 +475,7 @@ __attribute__((__visibility__("default"))) void vksift_getScaleSpaceOctaveResolu
   {
     logError(LOG_TAG, "vksift_getScaleSpaceOctaveResolution() error: invalid input. Requested octave idx is %d but the current number of octave is %d",
              octave, instance->sift_memory->curr_nb_octaves);
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
   *octave_images_width = instance->sift_memory->octave_resolutions[octave].width;
@@ -487,7 +488,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadScaleSpaceImage(v
   if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, false))
   {
     logError(LOG_TAG, "vksift_downloadScaleSpaceImage() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -498,7 +499,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadScaleSpaceImage(v
   if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, false, blurred_image))
   {
     logError(LOG_TAG, "vksift_downloadScaleSpaceImage() error when downloading pyramid blurred image from GPU memory.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 
@@ -508,7 +509,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadDoGImage(vksift_I
   if (!isInputOctaveIdxValid(instance, octave) || !isInputScaleIdxValid(instance, scale, true))
   {
     logError(LOG_TAG, "vksift_downloadDoGImage() error: invalid input.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_INVALID_INPUT);
+    instance->error_cb_func(VKSIFT_INVALID_INPUT_ERROR);
     return;
   }
 
@@ -519,7 +520,7 @@ __attribute__((__visibility__("default"))) void vksift_downloadDoGImage(vksift_I
   if (!vksift_Memory_copyPyramidImageFromGPU(instance->sift_memory, octave, scale, true, dog_image))
   {
     logError(LOG_TAG, "vksift_downloadDoGImage() error when downloading pyramid DoG image from GPU memory.");
-    instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+    instance->error_cb_func(VKSIFT_VULKAN_ERROR);
   }
 }
 ///////////////////////////////////////////////////////////////////////
@@ -531,7 +532,7 @@ __attribute__((__visibility__("default"))) void vksift_presentDebugFrame(vksift_
     if (!vkenv_presentDebugFrame(instance->vulkan_device, instance->debug_presenter))
     {
       logError(LOG_TAG, "vksift_presentDebugFrame(): error when rendering a debug frame to the provided window.");
-      instance->error_cb_func(VKSIFT_ERROR_TYPE_VULKAN);
+      instance->error_cb_func(VKSIFT_VULKAN_ERROR);
       return;
     }
   }
@@ -610,6 +611,12 @@ static bool isInputResolutionValid(vksift_Instance instance, const uint32_t inpu
   {
     logError(LOG_TAG, "Provided input image size (%d*%d=%d) is greater than the configured maximum image size (%d).", input_width, input_height,
              input_size, instance->sift_memory->max_image_size);
+    return false;
+  }
+  else if (input_size < 1024u)
+  {
+    logError(LOG_TAG, "Invalid input image size (%d*%d=%d). Input image size must be greater than or equal to 1024", input_width, input_height, input_size,
+             instance->sift_memory->max_image_size);
     return false;
   }
   else

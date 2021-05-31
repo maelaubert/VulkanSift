@@ -102,6 +102,13 @@ set_property(TARGET vulkansift APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_
 # using add_subdirectory() and target_link_libraries(target_name vulkansift ...)
 target_include_directories(vulkansift PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/> $<INSTALL_INTERFACE:include>)
 
+if(NOT ${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME})
+    # Only if there's a parent CMake project
+    # Set the VulkanSift_LIB and VulkanSift_INCLUDE_DIR variable in the parent scope for compatibility with installed versions
+    set(VulkanSift_LIB vulkansift PARENT_SCOPE)
+    set(VulkanSift_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include/ PARENT_SCOPE)
+endif()
+
 # Private include directories used when building the library
 target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/)
 target_include_directories(vulkansift PRIVATE ${Vulkan_INCLUDE_DIRS})
@@ -142,33 +149,35 @@ target_compile_definitions(vulkansift PRIVATE VKENV_USE_EMBEDDED_SHADERS=1)
 
 if(VULKANSIFT_BUILD_EXAMPLES)
 message(STATUS "Examples will be built")
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED core highgui)
 # Example program that read an image, detect and draw the SIFT features
 add_executable(test_sift_detect src/examples/test_sift_detect.cpp src/examples/test_utils.cpp)
-target_compile_options(test_sift_detect PRIVATE "-O3")
 target_link_libraries(test_sift_detect vulkansift ${OpenCV_LIBS})
 target_compile_options(test_sift_detect PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET test_sift_detect APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 # Example program that read two images and perform SIFT feature matching
 add_executable(test_sift_match src/examples/test_sift_match.cpp src/examples/test_utils.cpp)
-target_compile_options(test_sift_match PRIVATE "-O3")
 target_link_libraries(test_sift_match vulkansift ${OpenCV_LIBS})
 target_compile_options(test_sift_match PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET test_sift_match APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 # Example program that detect SIFT features and show the scale-space pyramid images
 add_executable(test_sift_show_pyr src/examples/test_sift_show_pyr.cpp src/examples/test_utils.cpp)
-target_compile_options(test_sift_show_pyr PRIVATE "-O3")
 target_link_libraries(test_sift_show_pyr vulkansift ${OpenCV_LIBS})
 target_compile_options(test_sift_show_pyr PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
 set_property(TARGET test_sift_show_pyr APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
+
+# Example program that shows how to use C++ exception based error handling to handle unexpected errors
+add_executable(test_sift_error_handling src/examples/test_sift_error_handling.cpp)
+target_link_libraries(test_sift_error_handling vulkansift)
+target_compile_options(test_sift_error_handling PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
+set_property(TARGET test_sift_error_handling APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
 
 if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE AND NOT CMAKE_SYSTEM_NAME MATCHES "Android")
     find_package(glfw3 REQUIRED)
     # Example program that enables GPU debug/profiling with external tools (NVIDIA Nsight, Renderdoc)
     add_executable(test_sift_gpu_debug src/examples/test_sift_gpu_debug.cpp src/examples/test_utils.cpp)
-    target_compile_options(test_sift_gpu_debug PRIVATE "-O3")
     target_link_libraries(test_sift_gpu_debug vulkansift ${OpenCV_LIBS} glfw)
     target_compile_options(test_sift_gpu_debug PRIVATE "${VULKANSIFT_COMPILER_OPTIONS}")
     set_property(TARGET test_sift_gpu_debug APPEND_STRING PROPERTY LINK_FLAGS " ${VULKANSIFT_LINKER_OPTIONS}")
@@ -179,7 +188,7 @@ endif(VULKANSIFT_BUILD_EXAMPLES)
 if(VULKANSIFT_BUILD_PERFS)
 message(STATUS "Performance tests will be built")
 # Add perf executables
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED core highgui features2d)
 
 # Appart from OpenCV, all compared SIFT implementations are compiled separately.
 # Their headers are placed in external_libs/SIFT_IMPL_NAME/src/ and the library placed in external_libs/SIFT_IMPL_NAME/lib/.
@@ -228,26 +237,15 @@ endif()
 ##########################################################################
 ##########################################################################
 # Install library
-SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
 set(VULKAN_SIFT_TARGETS vulkansift)
-if(VULKANSIFT_BUILD_EXAMPLES)
-    # Install the examples if they were built
-    set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_detect test_sift_match test_sift_show_pyr)
-    if(VULKANSIFT_WITH_GPU_DEBUG_EXAMPLE)
-        set(VULKAN_SIFT_TARGETS ${VULKAN_SIFT_TARGETS} test_sift_gpu_debug)
-    endif()
-endif()
 
 # Copy include directory content to INSTALL include dir
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
 
-install(TARGETS ${VULKAN_SIFT_TARGETS}
+install(TARGETS vulkansift
     EXPORT VulkanSiftTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin/VulkanSift
     PUBLIC_HEADER DESTINATION include
 )
 

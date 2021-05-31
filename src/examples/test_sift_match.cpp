@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
   // Setup VulkanSIFT
   vksift_setLogLevel(VKSIFT_LOG_INFO);
 
-  if (vksift_loadVulkan() != VKSIFT_ERROR_TYPE_SUCCESS)
+  if (vksift_loadVulkan() != VKSIFT_SUCCESS)
   {
     std::cout << "Impossible to initialize the Vulkan API" << std::endl;
     return -1;
@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
   config.input_image_max_size = std::max(img1.cols * img1.rows, img2.cols * img2.rows);
 
   vksift_Instance vksift_instance = NULL;
-  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_ERROR_TYPE_SUCCESS)
+  if (vksift_createInstance(&vksift_instance, &config) != VKSIFT_SUCCESS)
   {
     std::cout << "Impossible to create the vksift_instance" << std::endl;
     vksift_unloadVulkan();
