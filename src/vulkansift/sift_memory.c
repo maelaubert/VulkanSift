@@ -130,7 +130,7 @@ static bool estimateHighestMemoryRequirement(vksift_SiftMemory memory, uint32_t 
   return true;
 }
 
-bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
+bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory, bool is_init)
 {
   // Setup Pyramid related objects (must be updated when the input resolution changes)
   // Memory is only allocated on first call or if the previous allocation isn't large enough, this should not happen (or very rarely due to driver decision
@@ -149,13 +149,22 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                                  VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE,
                                  0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
-  res = res && estimateHighestMemoryRequirement(memory, memory->curr_input_image_width * memory->curr_input_image_height, &memory_requirement, 0,
-                                                VK_IMAGE_TYPE_2D, VK_FORMAT_R8_UNORM, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
-                                                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                                VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+
+  if (is_init)
+  {
+    res = res && estimateHighestMemoryRequirement(memory, memory->curr_input_image_width * memory->curr_input_image_height, &memory_requirement, 0,
+                                                  VK_IMAGE_TYPE_2D, VK_FORMAT_R8_UNORM, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+  }
+  else if (res)
+  {
+    vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+  }
 
   if (memory_requirement.size > memory->input_image_memory_size)
   {
+
     VK_NULL_SAFE_DELETE(memory->input_image_memory, vkFreeMemory(memory->device->device, memory->input_image_memory, NULL));
     res = res && vkenv_findValidMemoryType(memory->device->physical_device, memory_requirement, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_type_idx);
     res = res && vkenv_allocateMemory(&memory->input_image_memory, memory->device, memory_requirement.size, memory_type_idx);
@@ -173,7 +182,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create blur temp result images (one per octave)
   res = true;
-  for (uint32_t oct_idx = 0; oct_idx < memory->max_nb_octaves; oct_idx++)
+  for (uint32_t oct_idx = 0; oct_idx < memory->curr_nb_octaves; oct_idx++)
   {
     uint32_t width = memory->octave_resolutions[oct_idx].width;
     uint32_t height = memory->octave_resolutions[oct_idx].height;
@@ -182,11 +191,18 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             (VkExtent3D){.width = width, .height = height, .depth = 1}, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
-    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1, 1,
-                                                  VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
-                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    if (is_init)
+    {
+      res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1, 1,
+                                                    VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                        VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                    VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    }
+    else if (res)
+    {
+      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+    }
 
     if (memory_requirement.size > memory->blur_tmp_image_memory_size_arr[oct_idx])
     {
@@ -210,7 +226,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create gaussian image array per octave
   res = true;
-  for (uint32_t oct_idx = 0; oct_idx < memory->max_nb_octaves; oct_idx++)
+  for (uint32_t oct_idx = 0; oct_idx < memory->curr_nb_octaves; oct_idx++)
   {
     uint32_t width = memory->octave_resolutions[oct_idx].width;
     uint32_t height = memory->octave_resolutions[oct_idx].height;
@@ -220,11 +236,18 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
-    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
-                                                  memory->nb_scales_per_octave + 3, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
-                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    if (is_init)
+    {
+      res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
+                                                    memory->nb_scales_per_octave + 3, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                        VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                    VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    }
+    else if (res)
+    {
+      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+    }
 
     if (memory_requirement.size > memory->octave_image_memory_size_arr[oct_idx])
     {
@@ -247,7 +270,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create DoG image array per octave
   res = true;
-  for (uint32_t oct_idx = 0; oct_idx < memory->max_nb_octaves; oct_idx++)
+  for (uint32_t oct_idx = 0; oct_idx < memory->curr_nb_octaves; oct_idx++)
   {
     uint32_t width = memory->octave_resolutions[oct_idx].width;
     uint32_t height = memory->octave_resolutions[oct_idx].height;
@@ -257,11 +280,18 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
                             VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
-    res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
-                                                  memory->nb_scales_per_octave + 2, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
-                                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                                      VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                  VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    if (is_init)
+    {
+      res = res && estimateHighestMemoryRequirement(memory, width * height, &memory_requirement, 0, VK_IMAGE_TYPE_2D, pyramid_format, 1,
+                                                    memory->nb_scales_per_octave + 2, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
+                                                    VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                        VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                    VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED);
+    }
+    else if (res)
+    {
+      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+    }
 
     if (memory_requirement.size > memory->octave_DoG_image_memory_size_arr[oct_idx])
     {
@@ -290,14 +320,14 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory)
   VkCommandBuffer layout_change_cmdbuf = NULL;
   res = res && vkenv_beginInstantCommandBuffer(memory->device->device, memory->general_command_pool, &layout_change_cmdbuf);
   // Set the input image, blur temp images, octave images and DoG images to VK_LAYOUT_GENERAL
-  VkImageMemoryBarrier *layout_change_barriers = (VkImageMemoryBarrier *)malloc(sizeof(VkImageMemoryBarrier) * (1 + (memory->max_nb_octaves * 3)));
+  VkImageMemoryBarrier *layout_change_barriers = (VkImageMemoryBarrier *)malloc(sizeof(VkImageMemoryBarrier) * (1 + (memory->curr_nb_octaves * 3)));
   layout_change_barriers[0] =
       vkenv_genImageMemoryBarrier(memory->input_image, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                                   VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
   int layout_change_barrier_cnt = 1;
 
-  for (uint32_t i = 0; i < memory->max_nb_octaves; i++)
+  for (uint32_t i = 0; i < memory->curr_nb_octaves; i++)
   {
     layout_change_barriers[layout_change_barrier_cnt + 0] =
         vkenv_genImageMemoryBarrier(memory->blur_tmp_image_arr[i], 0, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
@@ -732,7 +762,7 @@ bool vksift_createSiftMemory(vkenv_Device device, vksift_SiftMemory *memory_ptr,
   }
 
   // Setup the Vulkan objects
-  if (!setupStaticObjectsAndMemory(memory) || !setupDynamicObjectsAndMemory(memory))
+  if (!setupStaticObjectsAndMemory(memory) || !setupDynamicObjectsAndMemory(memory, true))
   {
     logError(LOG_TAG, "Failed to create the SiftMemory instance");
     vksift_destroySiftMemory(memory_ptr);
@@ -884,7 +914,7 @@ bool vksift_prepareSiftMemoryForDetection(vksift_SiftMemory memory, const uint8_
       VK_NULL_SAFE_DELETE(memory->octave_DoG_image_arr[oct_idx], vkDestroyImage(memory->device->device, memory->octave_DoG_image_arr[oct_idx], NULL));
     }
     // Recreate objects
-    if (!setupDynamicObjectsAndMemory(memory))
+    if (!setupDynamicObjectsAndMemory(memory, false))
     {
       logError(LOG_TAG, "Failed to update the Vulkan images for the new input resolution");
       return false;

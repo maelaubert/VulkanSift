@@ -1,17 +1,17 @@
 # Performances
 
 VulkanSift performances are directly compared to the following SIFT implementations (GPU or CPU):
-- [VLFeat](https://www.vlfeat.org/): default configuration, version 0.9.21
-- [SiftGPU](https://github.com/pitzer/SiftGPU): with upsampling, CUDA enabled, commit b46bd5b8cc5cfdc1dc163444b72c705569800b6d
-- [PopSift](https://github.com/alicevision/popsift): default configuration with classic descriptor normalization, version 0.9
-- [OpenCV](https://opencv.org/): default configuration, version 4.2
+- [VLFeat](https://www.vlfeat.org/) (CPU): default configuration, version 0.9.21
+- [SiftGPU](https://github.com/pitzer/SiftGPU) (GPU): with upsampling, CUDA enabled, commit b46bd5b8cc5cfdc1dc163444b72c705569800b6d
+- [PopSift](https://github.com/alicevision/popsift) (GPU): default configuration with classic descriptor normalization, version 0.9
+- [OpenCV](https://opencv.org/) (CPU): default configuration, version 4.2
 
-All implementations are used in their specific wrapper in [/src/perf/wrappers/](/src/perf/wrappers/) and are configured with the same options (upsampling, sigma value, thresholds).
+All implementations are used in their specific wrapper file in [/src/perf/wrappers/](/src/perf/wrappers/) and are configured with the same options (upsampling, sigma value, thresholds).
 
 
 ## Detection speed tests
 
-Detection speed measurements are performed on the ["Affine Covariant Features" dataset](https://www.robots.ox.ac.uk/~vgg/data/affine/) (Visual Geometry Group,Oxford University) and [Hannover dataset](http://www.tnt.uni-hannover.de/project/feature_evaluation/). 
+Detection speed measurements are performed on the ["Affine Covariant Features" dataset](https://www.robots.ox.ac.uk/~vgg/data/affine/) (Visual Geometry Group,Oxford University) and the [Hannover dataset](http://www.tnt.uni-hannover.de/project/feature_evaluation/). 
 
 Even if the scale-space construction represents most of the runtime, the final runtime depends also on the number of features, especially if the number of detected features is high. The results are provided here to compare multiple implementations with a single test setup, they don't give a global estimate of the execution time.
 

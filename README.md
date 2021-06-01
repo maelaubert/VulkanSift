@@ -18,7 +18,7 @@ Note (31/03/21): as of today, VulkanSIFT has been tested with the following GPU/
 
 ## Dependencies
 
-By default, VulkanSift doesn't have any dependency and load the Vulkan library  at runtime. If the Vulkan requirements are not met at runtime, the library setup calls will gracefully fail to let users to fall back to other SIFT implementations.
+By default, VulkanSift doesn't have any dependency and load the Vulkan library  at runtime. If the Vulkan requirements are not met at runtime, the library setup calls will gracefully fail to let users fall back to other SIFT implementations.
 
 The library examples use [OpenCV](https://opencv.org/) to read image files and display results. 
 

@@ -41,7 +41,7 @@ extern "C"
    **/
 
   // Copy the image to the GPU and start the detection pipeline on the GPU. Detected features will be stored on the
-  // specified GPU buffer.
+  // specified GPU buffer. The parameter image_data must point to an array of uint8_t values representing a grayscale image (row-major).
   void vksift_detectFeatures(vksift_Instance instance, const uint8_t *image_data, const uint32_t image_width, const uint32_t image_height,
                              const uint32_t gpu_buffer_id);
 
@@ -62,13 +62,19 @@ extern "C"
 
   // Return the number of features available in the specified GPU buffer.
   uint32_t vksift_getFeaturesNumber(vksift_Instance instance, const uint32_t gpu_buffer_id);
-  // Download SIFT features from the specified GPU buffer and copy them to feats_ptr.
+
+  // Download SIFT features from the specified GPU buffer and copy them to feats_ptr. The parameter feats_ptr must provide enough space to
+  // store all the features present in the SIFT buffer (number of features retrieved with vksift_getFeaturesNumber())
   void vksift_downloadFeatures(vksift_Instance instance, vksift_Feature *feats_ptr, const uint32_t gpu_buffer_id);
+
   // Upload SIFT features to the specified GPU buffer.
   void vksift_uploadFeatures(vksift_Instance instance, const vksift_Feature *feats_ptr, const uint32_t nb_feats, const uint32_t gpu_buffer_id);
-  // Return the number of matches found. (same as the number of features in the buffer A used in the last call to vksift_matchFeatures())
+
+  // Return the number of matches found.
   uint32_t vksift_getMatchesNumber(vksift_Instance instance);
-  // Copy GPU matches information (vksift_Match_2NN) to the matches buffer.
+
+  // Copy GPU matches information (vksift_Match_2NN) to the matches buffer. The parameter matches must provide enough space to store
+  // all the matches (number of matches retrieved with vksift_getMatchesNumber())
   void vksift_downloadMatches(vksift_Instance instance, vksift_Match_2NN *matches);
 
   // Get the buffer availability status. Return true if the GPU is not using the buffer for a detection/matching task, false otherwise.
