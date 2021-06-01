@@ -246,6 +246,7 @@ install(TARGETS vulkansift
     EXPORT VulkanSiftTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
     PUBLIC_HEADER DESTINATION include
 )
 
