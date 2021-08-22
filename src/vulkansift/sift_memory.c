@@ -201,7 +201,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory, bool is_init)
     }
     else if (res)
     {
-      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+      vkGetImageMemoryRequirements(memory->device->device, memory->blur_tmp_image_arr[oct_idx], &memory_requirement);
     }
 
     if (memory_requirement.size > memory->blur_tmp_image_memory_size_arr[oct_idx])
@@ -246,7 +246,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory, bool is_init)
     }
     else if (res)
     {
-      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+      vkGetImageMemoryRequirements(memory->device->device, memory->octave_image_arr[oct_idx], &memory_requirement);
     }
 
     if (memory_requirement.size > memory->octave_image_memory_size_arr[oct_idx])
@@ -290,7 +290,7 @@ bool setupDynamicObjectsAndMemory(vksift_SiftMemory memory, bool is_init)
     }
     else if (res)
     {
-      vkGetImageMemoryRequirements(memory->device->device, memory->input_image, &memory_requirement);
+      vkGetImageMemoryRequirements(memory->device->device, memory->octave_DoG_image_arr[oct_idx], &memory_requirement);
     }
 
     if (memory_requirement.size > memory->octave_DoG_image_memory_size_arr[oct_idx])
