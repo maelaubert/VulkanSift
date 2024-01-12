@@ -1501,17 +1501,19 @@ bool vksift_dispatchSiftDetection(vksift_SiftDetector detector, const uint32_t t
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &detector->buffer_ownership_released_by_transfer_semaphore;
     submit_info.pWaitDstStageMask = &wait_dst_compute_shader_bit_stage_mask;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &detector->end_of_detection_semaphore;
   }
   else
   {
     submit_info.waitSemaphoreCount = 0;
     submit_info.pWaitSemaphores = NULL;
     submit_info.pWaitDstStageMask = NULL;
+    submit_info.signalSemaphoreCount = 0;
+    submit_info.pSignalSemaphores = NULL;
   }
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &detector->detection_command_buffer;
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores = &detector->end_of_detection_semaphore;
   VkFence detect_submit_fence = detector->dev->async_transfer_available ? NULL : detector->end_of_detection_fence;
   if (vkQueueSubmit(detector->general_queue, 1, &submit_info, detect_submit_fence) != VK_SUCCESS)
   {

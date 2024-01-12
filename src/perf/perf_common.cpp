@@ -57,6 +57,7 @@ std::shared_ptr<AbstractSiftDetector> createDetector(DETECTOR_TYPE type)
   default:
     break;
   }
+  return nullptr;
 }
 
 cv::Mat getMatchesImage(uint8_t *in_img1, std::vector<CommonPoint> kps1, int width1, int height1, uint8_t *in_img2, std::vector<CommonPoint> kps2,

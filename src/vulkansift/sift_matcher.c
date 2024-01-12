@@ -445,17 +445,19 @@ bool vksift_dispatchSiftMatching(vksift_SiftMatcher matcher, const uint32_t targ
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &matcher->buffer_ownership_released_by_transfer_semaphore;
     submit_info.pWaitDstStageMask = &wait_dst_compute_shader_bit_stage_mask;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &matcher->end_of_matching_semaphore;
   }
   else
   {
     submit_info.waitSemaphoreCount = 0;
     submit_info.pWaitSemaphores = NULL;
     submit_info.pWaitDstStageMask = NULL;
+    submit_info.signalSemaphoreCount = 0;
+    submit_info.pSignalSemaphores = NULL;
   }
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &matcher->matching_command_buffer;
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores = &matcher->end_of_matching_semaphore;
   VkFence match_submit_fence = matcher->dev->async_transfer_available ? NULL : matcher->end_of_matching_fence;
   if (vkQueueSubmit(matcher->general_queue, 1, &submit_info, match_submit_fence) != VK_SUCCESS)
   {

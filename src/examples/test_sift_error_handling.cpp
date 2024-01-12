@@ -9,11 +9,11 @@ void vulkansift_error_callback(vksift_Result result)
   std::cout << "vulkansift_error_callback() called !" << std::endl;
   if (result == VKSIFT_VULKAN_ERROR)
   {
-    throw std::runtime_error{"Vulkan related failure detected in VulkanSift functions. vksift_Instance must be destroyed."};
+    throw std::runtime_error("Vulkan related failure detected in VulkanSift functions. vksift_Instance must be destroyed.");
   }
   else if (result == VKSIFT_INVALID_INPUT_ERROR)
   {
-    throw std::invalid_argument{"Invalid argument detected in VulkanSift functions. vksift_Instance can still be used."};
+    throw std::invalid_argument("Invalid argument detected in VulkanSift functions. vksift_Instance can still be used.");
   }
 }
 
@@ -59,11 +59,11 @@ int main()
       std::cout << "Result valid." << std::endl;
     }
   }
-  catch (std::invalid_argument e)
+  catch (std::invalid_argument& e)
   {
     std::cout << "std::invalid_argument exception catched: " << e.what() << std::endl;
   }
-  catch (std::runtime_error e)
+  catch (std::runtime_error& e)
   {
     std::cout << "std::runtime_error exception catched: " << e.what() << std::endl;
   }
