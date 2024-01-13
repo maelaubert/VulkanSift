@@ -1,7 +1,14 @@
 #ifndef VKENV_DEVICE_H
 #define VKENV_DEVICE_H
 
-#include "vulkan_loader.h"
+#ifdef VK_NO_PROTOTYPES
+#include "volk/volk.h"
+#else
+#include <vulkan/vulkan.h>
+#endif
+
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef struct vkenv_Device_T
 {

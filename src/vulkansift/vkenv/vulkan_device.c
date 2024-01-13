@@ -18,9 +18,22 @@ bool vkenv_createInstance(vkenv_InstanceConfig *config_ptr)
 {
   if (vulkan_instance == VK_NULL_HANDLE)
   {
-    if (vkenv_loadVulkanInstanceCreationFuncs() && createInstance(config_ptr))
+    // Initialize the loader if Vulkan symbols are loaded at runtime
+#if defined(VK_NO_PROTOTYPES)
+    // This will find and open the vulkan lib at runtime and load instance creation functions
+    if(volkInitialize() != VK_SUCCESS)
     {
-      vkenv_loadVulkanAPI(vulkan_instance);
+      logError(LOG_TAG, "vkenv_createInstance() failure: volk failed to load the Vulkan library at runtime.");
+      logError(LOG_TAG, "This can happen when the Vulkan library cannot be found in the system (vulkan-1.dll on Windows, libvulkan.so or libvulkan.so.1 on Linux, libvulkan.dylib or libMoltenVK.dylib on Apple platforms)");
+      return false;
+    }
+#endif
+
+    if(createInstance(config_ptr))
+    {
+#if defined(VK_NO_PROTOTYPES)
+      volkLoadInstance(vulkan_instance);
+#endif
       return true;
     }
     else
@@ -33,8 +46,8 @@ bool vkenv_createInstance(vkenv_InstanceConfig *config_ptr)
   }
   else
   {
-    logError(LOG_TAG, "vkenv_createInstance() failure: two Vulkan instances cannot exist at the same time.");
-    return false;
+      logError(LOG_TAG, "vkenv_createInstance() failure: a Vulkan instance has already been created.");
+      return false;
   }
 }
 
@@ -44,8 +57,10 @@ void vkenv_destroyInstance()
 {
   // Destroy instance
   VK_NULL_SAFE_DELETE(vulkan_instance, vkDestroyInstance(vulkan_instance, NULL));
+#if defined(VK_NO_PROTOTYPES)
   // Release Vulkan dynamic library
-  vkenv_unloadVulkan();
+  volkFinalize();
+#endif
   // Reset vulkan instance to NULL (allow vkenv_createInstance to be called again)
   vulkan_instance = VK_NULL_HANDLE;
 }
