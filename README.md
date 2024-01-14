@@ -12,9 +12,11 @@ Detection speed and feature comparison with other implementations are detailed i
 
 ----
 Note (31/03/21): as of today, VulkanSIFT has been tested with the following GPU/platforms:
+- NVIDIA RTX 4070 (laptop): Linux/Windows
 - NVIDIA RTX 2060 (laptop): Linux/Windows
 - NVIDIA GTX 960M (laptop): Linux
 - Qualcomm Adreno 615 (smartphone): Android
+- Apple M2 (laptop): MacOS
 
 ## Dependencies
 

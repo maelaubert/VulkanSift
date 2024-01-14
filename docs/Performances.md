@@ -26,6 +26,15 @@ For each image, 10 warmup detections are performed followed by 100 measured dete
 | 1536x1024  | 3034.82 ms | 203.86 ms | 28.24 ms | 23.00 ms | 16.47 ms   |
 | 3456x2304  |            |           |          | 97.97 ms | 73.29 ms   |
 
+<details open>
+<summary><b>[2024.01.14] Updated results (NVIDIA RTX 4070 (laptop), Intel i7-13700HX)</b></summary>
+
+| Resolution | VLFeat     | OpenCV    | SiftGPU  | PopSift  | VulkanSift |
+| ---------- | ---------- | --------- | -------- | -------- | ---------- |
+| 1536x1024  | 2038.58 ms | 115.37 ms | 19.81 ms | 11.69 ms | 10.61 ms   |
+| 3456x2304  |            |           |          | 52.97 ms | 46.04 ms   |
+
+</details>
 
 ### Results with the Oxford dataset:
 
@@ -35,6 +44,12 @@ For each image, 10 warmup detections are performed followed by 100 measured dete
 
 ![](perf_runtime_oxford_640x480.png)
 
+<details>
+<summary><b>[2024.01.14] Updated results (NVIDIA RTX 4070 (laptop), Intel i7-13700HX)</b></summary>
+
+![](perf_runtime_oxford_640x480_updated.png)
+
+</details>
 
 ## Feature quality tests
 
