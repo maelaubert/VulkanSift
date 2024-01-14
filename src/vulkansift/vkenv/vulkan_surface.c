@@ -24,8 +24,11 @@ const char *vkenv_getSurfaceExtensionName()
   return VK_KHR_XCB_SURFACE_EXTENSION_NAME;
 #elif VK_USE_PLATFORM_XLIB_KHR
   return VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+#elif VK_USE_PLATFORM_METAL_EXT
+  return VK_EXT_METAL_SURFACE_EXTENSION_NAME;
 #else
   // Should not be compiled if only using compute or headless rendering
+  return "SURFACE_EXTENSION_SUPPORT_NOT_IMPLEMENTED";
 #endif
 }
 
@@ -53,6 +56,12 @@ bool vkenv_createSurface(VkSurfaceKHR *surface_ptr, vkenv_ExternalWindowInfo *wi
                                                     .dpy = *((Display **)(window_info_ptr->context)),
                                                     .window = *((Window *)(window_info_ptr->window))};
   surface_creation_res = vkCreateXlibSurfaceKHR(vkenv_getInstance(), &surface_create_info, NULL, surface_ptr);
+#elif VK_USE_PLATFORM_METAL_EXT
+  VkMetalSurfaceCreateInfoEXT surface_create_info = {.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+                                                    .pNext = NULL,
+                                                    .flags = 0,
+                                                    .pLayer = *((CAMetalLayer**)window_info_ptr->window)};
+  surface_creation_res = vkCreateMetalSurfaceEXT(vkenv_getInstance(), &surface_create_info, NULL, surface_ptr);
 #else
   // Should not be compiled if only using compute or headless rendering
 #endif

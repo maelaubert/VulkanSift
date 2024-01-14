@@ -36,8 +36,8 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|MSVC")
      message(FATAL_ERROR "Only GNU, Clang and MSVC compilers are supported in this project.")
 endif()
 
-# Check if platform is Linux or Windows (would need MoltenVK for Mac)
-if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows|Android")
+# Check if platform is Linux, Windows, or an Apple platform
+if (NOT CMAKE_SYSTEM_NAME MATCHES "Linux|Windows|Android|Darwin")
     message(FATAL_ERROR "Only Linux, Windows and Android platforms are supported in this project.")
 endif()
 #####################################################################################
@@ -141,6 +141,8 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_WIN32_KHR=1)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Android")
     target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    target_compile_definitions(vulkansift PRIVATE VK_USE_PLATFORM_METAL_EXT=1)
 endif()
 
 # Add dependencies on shader files

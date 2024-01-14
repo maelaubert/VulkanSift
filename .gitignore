@@ -3,3 +3,4 @@ build
 
 res/*
 external_libs/*
+.DS_Store

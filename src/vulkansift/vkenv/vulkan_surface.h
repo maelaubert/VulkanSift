@@ -9,6 +9,7 @@ typedef struct
   //    - XLIB: context is Display**, window is Window*
   //    - WIN32: context is HINSTANCE*, window is HWND*
   //    - ANDROID: context should be NULL, window is ANativeWindow**
+  //    - MacOS/iOS: context should be NULL, window is CAMetalLayer**
   void *context;
   void *window;
 } vkenv_ExternalWindowInfo;

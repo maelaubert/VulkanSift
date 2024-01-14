@@ -145,9 +145,14 @@ void vkenv_getPhysicalDevicesProperties(uint32_t *nb_devices, VkPhysicalDevicePr
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-bool getRequestedExtensionsSupported(uint32_t platform_extension_count, VkExtensionProperties *platform_extensions, uint32_t requested_extension_count,
-                                     const char **requested_extensions, bool *mask)
+bool getRequestedInstanceExtensionsSupported(uint32_t requested_extension_count, const char **requested_extensions, bool *mask)
 {
+  // Get the available extensions
+  uint32_t platform_extension_count = 0;
+  vkEnumerateInstanceExtensionProperties(NULL, &platform_extension_count, NULL);
+  VkExtensionProperties *platform_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * platform_extension_count);
+  vkEnumerateInstanceExtensionProperties(NULL, &platform_extension_count, platform_extensions);
+
   // Check if the extension names in requested_extensions are found the platform extensions
   // When an requested extension is found, the mask value at the same index is set to true
   memset(mask, 0, sizeof(bool) * requested_extension_count);
@@ -163,12 +168,18 @@ bool getRequestedExtensionsSupported(uint32_t platform_extension_count, VkExtens
       }
     }
   }
+  free(platform_extensions);
   return nb_found >= requested_extension_count;
 }
 
-bool getRequestedLayersSupported(uint32_t platform_layers_count, VkLayerProperties *platform_layers, uint32_t requested_layers_count,
-                                     const char **requested_layers, bool *mask)
+bool getRequestedLayersSupported(uint32_t requested_layers_count, const char **requested_layers, bool *mask)
 {
+  // Get the available layers
+  uint32_t platform_layers_count = 0;
+  vkEnumerateInstanceLayerProperties(&platform_layers_count, NULL);
+  VkLayerProperties *platform_layers = (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * platform_layers_count);
+  vkEnumerateInstanceLayerProperties(&platform_layers_count, platform_layers);
+
   // Check if the layer names in requested_extensions are found the platform layers
   // When an requested layer is found, the mask value at the same index is set to true
   memset(mask, 0, sizeof(bool) * requested_layers_count);
@@ -184,19 +195,40 @@ bool getRequestedLayersSupported(uint32_t platform_layers_count, VkLayerProperti
       }
     }
   }
+  free(platform_layers);
   return nb_found >= requested_layers_count;
 }
 
+bool hasPortabilityEnumerationSupport()
+{
+  // Get the available extensions
+  uint32_t platform_extension_count = 0;
+  vkEnumerateInstanceExtensionProperties(NULL, &platform_extension_count, NULL);
+  VkExtensionProperties *platform_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * platform_extension_count);
+  vkEnumerateInstanceExtensionProperties(NULL, &platform_extension_count, platform_extensions);
+
+  bool has_portability_enumeration_extension = false;
+  bool has_get_device_properties_2_extenstion = false;
+  for (uint32_t i = 0; i < platform_extension_count; i++)
+  {
+    if (strcmp(platform_extensions[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0)
+    {
+      has_portability_enumeration_extension = true;
+    }
+    if (strcmp(platform_extensions[i].extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == 0)
+    {
+      has_get_device_properties_2_extenstion = true;
+    }
+  }
+  free(platform_extensions);
+  return has_portability_enumeration_extension && has_get_device_properties_2_extenstion;
+}
 
 bool createInstance(vkenv_InstanceConfig *config)
 {
   // Check that requested instance extensions are supported
-  uint32_t available_extension_cnt = 0;
-  vkEnumerateInstanceExtensionProperties(NULL, &available_extension_cnt, NULL);
-  VkExtensionProperties *available_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * available_extension_cnt);
   bool *requested_extensions_mask = (bool *)malloc(sizeof(bool) * config->instance_extension_count);
-  vkEnumerateInstanceExtensionProperties(NULL, &available_extension_cnt, available_extensions);
-  bool requested_extensions_supported = getRequestedExtensionsSupported(available_extension_cnt, available_extensions, config->instance_extension_count,
+  bool requested_extensions_supported = getRequestedInstanceExtensionsSupported(config->instance_extension_count,
                                                                         config->instance_extensions, requested_extensions_mask);
   if (requested_extensions_supported == false)
   {
@@ -210,20 +242,36 @@ bool createInstance(vkenv_InstanceConfig *config)
     }
   }
   free(requested_extensions_mask);
-  free(available_extensions);
 
   if (requested_extensions_supported == false)
   {
     return false;
   }
 
+  VkInstanceCreateFlags instance_creation_flags = 0;
+
+  // Copy the requested layers to a local buffer with some extra room for platform specific extensions
+  uint32_t num_requested_extensions = config->instance_extension_count;
+  char** requested_extensions = (char**)malloc(sizeof(char*) * (num_requested_extensions+2));
+  memcpy(requested_extensions, config->instance_extensions ,sizeof(char*) * num_requested_extensions);
+
+  // Support enumerating non-conformant Vulkan implementations when possible.
+  // This is particularly needed on Apple platforms where linking with the VulkanSDK will require
+  // the VK_KHR_portability_enumeration to be enabled and VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+  // to be passed in the vkCreateInstance flags to be able to create the instance and see the physical device.
+  if(hasPortabilityEnumerationSupport())
+  {
+    requested_extensions[num_requested_extensions] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    num_requested_extensions++;
+    requested_extensions[num_requested_extensions] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+    num_requested_extensions++;
+    // Also need this flag to support non-conformant Vulkan implementations
+    instance_creation_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+  }
+
   // From the requested validation layers gather the subset that can be supported by the instance
-  uint32_t available_layers_cnt = 0;
-  vkEnumerateInstanceLayerProperties(&available_layers_cnt, NULL);
-  VkLayerProperties *available_layers = (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * available_layers_cnt);
   bool *requested_layers_mask = (bool *)malloc(sizeof(bool) * config->validation_layer_count);
-  vkEnumerateInstanceLayerProperties(&available_layers_cnt, available_layers);
-  getRequestedLayersSupported(available_layers_cnt, available_layers, config->validation_layer_count, config->validation_layers, requested_layers_mask);
+  getRequestedLayersSupported(config->validation_layer_count, config->validation_layers, requested_layers_mask);
   int num_kept_layers = 0;
   char **kept_layers = (char **)malloc(sizeof(char*) * config->validation_layer_count);
   for(uint32_t i=0; i<config->validation_layer_count; i++)
@@ -239,7 +287,6 @@ bool createInstance(vkenv_InstanceConfig *config)
     }
   }
   free(requested_layers_mask);
-  free(available_layers);
 
   // Create VkInstance
   VkApplicationInfo app_info = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -252,15 +299,16 @@ bool createInstance(vkenv_InstanceConfig *config)
 
   VkInstanceCreateInfo instance_create_info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
                                                .pNext = NULL,
-                                               .flags = 0,
+                                               .flags = instance_creation_flags,
                                                .pApplicationInfo = &app_info,
                                                .enabledLayerCount = num_kept_layers,
                                                .ppEnabledLayerNames = (const char**)kept_layers,
-                                               .enabledExtensionCount = config->instance_extension_count,
-                                               .ppEnabledExtensionNames = config->instance_extensions};
+                                               .enabledExtensionCount = num_requested_extensions,
+                                               .ppEnabledExtensionNames = (const char**)requested_extensions};
 
   VkResult create_instance_res = vkCreateInstance(&instance_create_info, NULL, &vulkan_instance);
   free(kept_layers);
+  free(requested_extensions);
 
   if (create_instance_res != VK_SUCCESS)
   {
@@ -314,6 +362,33 @@ bool findQueueFamilyIndex(VkPhysicalDevice physical_device, uint32_t *queue_fami
   }
   free(queue_families);
   return queue_idx_found;
+}
+
+bool getRequestedPhysicalDeviceExtensionsSupported(VkPhysicalDevice device, uint32_t requested_extension_count, const char **requested_extensions, bool *mask)
+{
+  // Get the available extensions
+  uint32_t platform_extension_count = 0;
+  vkEnumerateDeviceExtensionProperties(device, NULL, &platform_extension_count, NULL);
+  VkExtensionProperties *platform_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * platform_extension_count);
+  vkEnumerateDeviceExtensionProperties(device, NULL, &platform_extension_count, platform_extensions);
+
+  // Check if the extension names in requested_extensions are found the platform extensions
+  // When an requested extension is found, the mask value at the same index is set to true
+  memset(mask, 0, sizeof(bool) * requested_extension_count);
+  uint32_t nb_found = 0;
+  for (uint32_t platform_idx = 0; platform_idx < platform_extension_count; platform_idx++)
+  {
+    for (uint32_t req_idx = 0; req_idx < requested_extension_count; req_idx++)
+    {
+      if (strcmp(platform_extensions[platform_idx].extensionName, requested_extensions[req_idx]) == 0)
+      {
+        mask[req_idx] = true;
+        nb_found++;
+      }
+    }
+  }
+  free(platform_extensions);
+  return nb_found >= requested_extension_count;
 }
 
 float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t required_device_extension_count, const char **required_device_extensions,
@@ -374,13 +449,9 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
   }
 
   // Check that device extensions are supported
-  uint32_t available_device_extension_count = 0u;
-  vkEnumerateDeviceExtensionProperties(device, NULL, &available_device_extension_count, NULL);
-  VkExtensionProperties *available_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * available_device_extension_count);
   bool *required_extensions_mask = (bool *)malloc(sizeof(bool) * required_device_extension_count);
-  vkEnumerateDeviceExtensionProperties(device, NULL, &available_device_extension_count, available_extensions);
-  bool requested_extensions_supported = getRequestedExtensionsSupported(
-      available_device_extension_count, available_extensions, required_device_extension_count, required_device_extensions, required_extensions_mask);
+  bool requested_extensions_supported = getRequestedPhysicalDeviceExtensionsSupported(
+      device, required_device_extension_count, required_device_extensions, required_extensions_mask);
 
   if (requested_extensions_supported)
   {
@@ -398,7 +469,6 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
     }
   }
   free(required_extensions_mask);
-  free(available_extensions);
 
   if (requested_extensions_supported == false)
   {
@@ -480,13 +550,9 @@ bool getPhysicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
     {
       device->physical_device = devices[config->target_device_idx];
       // Mandatory device extensions check
-      uint32_t available_device_extension_count = 0u;
-      vkEnumerateDeviceExtensionProperties(device->physical_device, NULL, &available_device_extension_count, NULL);
-      VkExtensionProperties *available_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * available_device_extension_count);
       bool *required_extensions_mask = (bool *)malloc(sizeof(bool) * config->device_extension_count);
-      vkEnumerateDeviceExtensionProperties(device->physical_device, NULL, &available_device_extension_count, available_extensions);
-      bool requested_extensions_supported = getRequestedExtensionsSupported(
-          available_device_extension_count, available_extensions, config->device_extension_count, config->device_extensions, required_extensions_mask);
+      bool requested_extensions_supported = getRequestedPhysicalDeviceExtensionsSupported(
+          device->physical_device, config->device_extension_count, config->device_extensions, required_extensions_mask);
 
       if (requested_extensions_supported == false)
       {
@@ -509,7 +575,6 @@ bool getPhysicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
         valid_gpu_found = true;
       }
       free(required_extensions_mask);
-      free(available_extensions);
     }
   }
   free(devices);
@@ -544,9 +609,43 @@ bool getPhysicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
   return valid_gpu_found;
 }
 
+bool hasPortabilitySubsetExtensionSupport(VkPhysicalDevice device)
+{
+  // Get the available extensions
+  uint32_t platform_extension_count = 0;
+  vkEnumerateDeviceExtensionProperties(device, NULL, &platform_extension_count, NULL);
+  VkExtensionProperties *platform_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * platform_extension_count);
+  vkEnumerateDeviceExtensionProperties(device, NULL, &platform_extension_count, platform_extensions);
+
+  bool has_portability_subset_extension = false;
+  for (uint32_t i = 0; i < platform_extension_count; i++)
+  {
+    if (strcmp(platform_extensions[i].extensionName, "VK_KHR_portability_subset") == 0)
+    {
+      has_portability_subset_extension = true;
+      break;
+    }
+  }
+  free(platform_extensions);
+
+  return has_portability_subset_extension;
+}
+
 bool createLogicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
 {
   bool creation_success = true;
+
+  // Copy the requested device extension and reserve enough space for the VK_KHR_portability_subset extension
+  // which is mandatory when present. This is needed to support MoltenVK since it's a non-conformant implementation.
+  uint32_t num_device_extensions = config->device_extension_count;
+  char** device_extensions = (char**)malloc(sizeof(char*) * (num_device_extensions+1));
+  memcpy(device_extensions, config->device_extensions, sizeof(char*) * num_device_extensions);
+  // Add the VK_KHR_portability_subset extension if supported
+  if(hasPortabilitySubsetExtensionSupport(device->physical_device))
+  {
+    device_extensions[num_device_extensions] = "VK_KHR_portability_subset";
+    num_device_extensions++;
+  }
 
   // Update queue count in the device structure
   device->general_queue_cnt = config->nb_general_queues;
@@ -597,11 +696,13 @@ bool createLogicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
                                            .pQueueCreateInfos = queue_create_infos,
                                            .enabledLayerCount = 0, // device layers are deprecated
                                            .ppEnabledLayerNames = NULL,
-                                           .enabledExtensionCount = config->device_extension_count,
-                                           .ppEnabledExtensionNames = config->device_extensions,
+                                           .enabledExtensionCount = num_device_extensions,
+                                           .ppEnabledExtensionNames = (const char**)device_extensions,
                                            .pEnabledFeatures = NULL};
 
   VkResult create_device_res = vkCreateDevice(device->physical_device, &device_create_info, NULL, &device->device);
+  free(device_extensions);
+
   if (create_device_res != VK_SUCCESS)
   {
     logError(LOG_TAG, "Failed to create logical device (vkCreateDevice: %s)", vkenv_getVkResultString(create_device_res));
