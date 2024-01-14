@@ -14,7 +14,7 @@ endif()
 if(NOT CMAKE_VERSION VERSION_LESS 3.7.0) #if FindCmake is available
     find_package(Vulkan REQUIRED)
 elseif(DEFINED ENV{VULKAN_SDK}) # if VULKAN_SDK in the path
-    set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/lib")
+    set(Vulkan_INCLUDE_DIRS "$ENV{VULKAN_SDK}/include")
     find_library(Vulkan_LIBRARY NAMES vulkan-1 vulkan PATHS "$ENV{VULKAN_SDK}/lib")
 else()
     message(FATAL_ERROR "Could not find the Vulkan SDK")
@@ -48,7 +48,6 @@ set(VULKANSIFT_LIB_SRC
     src/vulkansift/sift_detector.c
     src/vulkansift/sift_matcher.c
     # vkenv files (currently from git submodule)
-    src/vulkansift/vkenv/vulkan_loader.c
     src/vulkansift/vkenv/vulkan_device.c
     src/vulkansift/vkenv/vulkan_utils.c
     src/vulkansift/vkenv/vulkan_swapchain.c
@@ -58,6 +57,11 @@ set(VULKANSIFT_LIB_SRC
     # we use embedded shaders we need to add the source storing the spv to the library
     ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shader_provider.c
 )
+
+if(VULKANSIFT_LOAD_VK_AT_RUNTIME)
+    # Add source from the thirdparty library volk (Vulkan loader)
+    set(VULKANSIFT_LIB_SRC ${VULKANSIFT_LIB_SRC} src/thirdparty/volk/volk.c)
+endif()
 
 # VulkanSift shaders
 set(VULKANSIFT_LIB_SHADERS
@@ -111,6 +115,7 @@ endif()
 
 # Private include directories used when building the library
 target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/)
+target_include_directories(vulkansift PRIVATE ${PROJECT_SOURCE_DIR}/src/thirdparty/)
 target_include_directories(vulkansift PRIVATE ${Vulkan_INCLUDE_DIRS})
 
 if(CMAKE_SYSTEM_NAME MATCHES "Android")
