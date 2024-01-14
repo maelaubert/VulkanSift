@@ -319,30 +319,31 @@ bool findQueueFamilyIndex(VkPhysicalDevice physical_device, uint32_t *queue_fami
 float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t required_device_extension_count, const char **required_device_extensions,
                                        const uint32_t req_general_queue_cnt, const uint32_t req_compute_queue_cnt, const uint32_t req_transfer_queue_cnt)
 {
-  // Need present if GPU_DEBUG and support
-  // GPU score = queue_types_multiplier * heap_size_multiplier
-  // queue_types_multiplier = number of different queue types available (general purpose, async compute, async transfer)
-  // heap_size_multiplier = available GPU memory size in Gb
-  // If the GPU is not a DISCRETE_GPU or an INTEGRATED_GPU, the returned score will be 0.f
-  // If the requested device extensions are not support by the GPU, the returned score will be 0.f
+  // GPU capability score is based on (by order of importance):
+  // - GPU type: dedicated GPUs are picked over integrated GPUs, other type of GPUs are discarded (CPUs, virtual GPUs and other)
+  // - Queue support: the GPU must support a least one general command queue (supports all operation), GPUs with transfer or asynchronous compute queue support will be preferred
+  // - Extensions: the GPU must support all the requested extensions
+  // - Heap size: the GPU device local memory size is finally used to help compare GPUs with the same properties (type and queues support)
 
-  float valid_type_multiplier = 0.f;
-  float queue_types_multiplier = 0.f;
-  float extensions_supported_multiplier = 0.f;
-  float heap_size_multiplier = 0.f;
+  float capability_score = 0.f;
 
-  // Check GPU type (only accept INTEGRATED or DEDICATED GPUs)
+  // Check GPU type (only accept INTEGRATED or DEDICATED GPUs, and prefer DEDICATED GPUs)
   VkPhysicalDeviceProperties props;
   vkGetPhysicalDeviceProperties(device, &props);
-  if (props.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && props.deviceType != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+  if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
   {
-    logInfo(LOG_TAG, "\t\t -> Invalid GPU type");
-    valid_type_multiplier = 0.f;
+    logInfo(LOG_TAG, "\t\t -> Valid GPU type (DISCRETE_GPU)");
+    capability_score += 2.f * 1e4f;
+  }
+  else if(props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+  {
+    logInfo(LOG_TAG, "\t\t -> Valid GPU type (INTEGRATED_GPU)");
+    capability_score += 1.f * 1e4f;
   }
   else
   {
-    logInfo(LOG_TAG, "\t\t -> Valid GPU type");
-    valid_type_multiplier = 1.f;
+    logInfo(LOG_TAG, "\t\t -> Invalid GPU type");
+    return 0.f;
   }
 
   // Check queue family types availability
@@ -355,8 +356,8 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
   // For the multiplier, the general queue is mandatory, all other async queue add 1.0 to the multiplier
   if (general_queue_available)
   {
-    queue_types_multiplier = 1.f + (compute_queue_available ? 1.f : 0.f) + (transfer_queue_available ? 1.f : 0.f);
-    logInfo(LOG_TAG, "\t\t -> General-purpose queue family available", (int)queue_types_multiplier);
+    capability_score += (1.f + (compute_queue_available ? 1.f : 0.f) + (transfer_queue_available ? 1.f : 0.f)) * 1e3f;
+    logInfo(LOG_TAG, "\t\t -> General-purpose queue family available");
     if (compute_queue_available)
     {
       logInfo(LOG_TAG, "\t\t -> Support requirements on async-compute queues");
@@ -369,7 +370,7 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
   else
   {
     logInfo(LOG_TAG, "\t\t -> No general purpose queue family available or queue count requirement not met");
-    queue_types_multiplier = 0.f;
+    return 0.f;
   }
 
   // Check that device extensions are supported
@@ -381,7 +382,11 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
   bool requested_extensions_supported = getRequestedExtensionsSupported(
       available_device_extension_count, available_extensions, required_device_extension_count, required_device_extensions, required_extensions_mask);
 
-  if (requested_extensions_supported == false)
+  if (requested_extensions_supported)
+  {
+    logInfo(LOG_TAG, "\t\t -> Required device extensions supported");
+  }
+  else
   {
     logInfo(LOG_TAG, "\t\t -> Missing required device extension(s):");
     for (uint32_t i = 0; i < required_device_extension_count; i++)
@@ -391,15 +396,14 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
         logInfo(LOG_TAG, "\t\t\t\"%s\"", required_device_extensions[i]);
       }
     }
-    extensions_supported_multiplier = 0.f;
-  }
-  else
-  {
-    logInfo(LOG_TAG, "\t\t -> Required device extensions supported");
-    extensions_supported_multiplier = 1.f;
   }
   free(required_extensions_mask);
   free(available_extensions);
+
+  if (requested_extensions_supported == false)
+  {
+    return 0.f;
+  }
 
   // Compute total heap size
   VkPhysicalDeviceMemoryProperties memory_props;
@@ -412,9 +416,11 @@ float getPhysicalDeviceCapabilityScore(VkPhysicalDevice device, uint32_t require
       available_memory_sum += memory_props.memoryHeaps[i].size;
     }
   }
-  heap_size_multiplier = ((float)available_memory_sum) / 1000000000;
-  logInfo(LOG_TAG, "\t\t -> Device local memory size %f Gbytes", heap_size_multiplier);
-  return valid_type_multiplier * extensions_supported_multiplier * queue_types_multiplier * heap_size_multiplier;
+  float heap_size_in_gb = ((float)available_memory_sum) / 1000000000;
+  logInfo(LOG_TAG, "\t\t -> Device local memory size %f Gbytes", heap_size_in_gb);
+  // Add the heap size in GB to the score
+  capability_score += heap_size_in_gb;
+  return capability_score;
 }
 
 bool getPhysicalDevice(vkenv_Device device, vkenv_DeviceConfig *config)
