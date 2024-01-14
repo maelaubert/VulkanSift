@@ -166,6 +166,28 @@ bool getRequestedExtensionsSupported(uint32_t platform_extension_count, VkExtens
   return nb_found >= requested_extension_count;
 }
 
+bool getRequestedLayersSupported(uint32_t platform_layers_count, VkLayerProperties *platform_layers, uint32_t requested_layers_count,
+                                     const char **requested_layers, bool *mask)
+{
+  // Check if the layer names in requested_extensions are found the platform layers
+  // When an requested layer is found, the mask value at the same index is set to true
+  memset(mask, 0, sizeof(bool) * requested_layers_count);
+  uint32_t nb_found = 0;
+  for (uint32_t platform_idx = 0; platform_idx < platform_layers_count; platform_idx++)
+  {
+    for (uint32_t req_idx = 0; req_idx < requested_layers_count; req_idx++)
+    {
+      if (strcmp(platform_layers[platform_idx].layerName, requested_layers[req_idx]) == 0)
+      {
+        mask[req_idx] = true;
+        nb_found++;
+      }
+    }
+  }
+  return nb_found >= requested_layers_count;
+}
+
+
 bool createInstance(vkenv_InstanceConfig *config)
 {
   // Check that requested instance extensions are supported
@@ -195,6 +217,30 @@ bool createInstance(vkenv_InstanceConfig *config)
     return false;
   }
 
+  // From the requested validation layers gather the subset that can be supported by the instance
+  uint32_t available_layers_cnt = 0;
+  vkEnumerateInstanceLayerProperties(&available_layers_cnt, NULL);
+  VkLayerProperties *available_layers = (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * available_layers_cnt);
+  bool *requested_layers_mask = (bool *)malloc(sizeof(bool) * config->validation_layer_count);
+  vkEnumerateInstanceLayerProperties(&available_layers_cnt, available_layers);
+  getRequestedLayersSupported(available_layers_cnt, available_layers, config->validation_layer_count, config->validation_layers, requested_layers_mask);
+  int num_kept_layers = 0;
+  char **kept_layers = (char **)malloc(sizeof(char*) * config->validation_layer_count);
+  for(uint32_t i=0; i<config->validation_layer_count; i++)
+  {
+    if(requested_layers_mask[i])
+    {
+      kept_layers[num_kept_layers] = (char*)config->validation_layers[i];
+      num_kept_layers++;
+    }
+    else
+    {
+      logWarning(LOG_TAG, "The requested layer %s is not supported by the Vulkan runtime and will not be used", config->validation_layers[i]);
+    }
+  }
+  free(requested_layers_mask);
+  free(available_layers);
+
   // Create VkInstance
   VkApplicationInfo app_info = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                                 .pNext = NULL,
@@ -208,12 +254,14 @@ bool createInstance(vkenv_InstanceConfig *config)
                                                .pNext = NULL,
                                                .flags = 0,
                                                .pApplicationInfo = &app_info,
-                                               .enabledLayerCount = config->validation_layer_count,
-                                               .ppEnabledLayerNames = config->validation_layers,
+                                               .enabledLayerCount = num_kept_layers,
+                                               .ppEnabledLayerNames = (const char**)kept_layers,
                                                .enabledExtensionCount = config->instance_extension_count,
                                                .ppEnabledExtensionNames = config->instance_extensions};
 
   VkResult create_instance_res = vkCreateInstance(&instance_create_info, NULL, &vulkan_instance);
+  free(kept_layers);
+
   if (create_instance_res != VK_SUCCESS)
   {
     logError(LOG_TAG, "Vulkan instance creation failed (vkCreateInstance: %s)", vkenv_getVkResultString(create_instance_res));

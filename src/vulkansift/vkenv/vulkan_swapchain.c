@@ -136,7 +136,7 @@ bool createSwapchain(vkenv_Device device, vkenv_Swapchain swapchain, VkSurfaceKH
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical_device, surface, &surface_capabilities);
   // Define the number of images
   uint32_t selected_swapchain_image_count = surface_capabilities.minImageCount + 1;
-  if (selected_swapchain_image_count > surface_capabilities.maxImageCount)
+  if ((surface_capabilities.maxImageCount!=0) && (selected_swapchain_image_count > surface_capabilities.maxImageCount))
   {
     selected_swapchain_image_count = surface_capabilities.maxImageCount;
   }
