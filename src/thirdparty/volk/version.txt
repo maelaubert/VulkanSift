@@ -1,1 +1,1 @@
-volk release for Vulkan 1.3.270
+volk release for Vulkan 1.3.270 (commit: f2a16e3)
