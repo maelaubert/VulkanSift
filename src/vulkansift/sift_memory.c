@@ -466,7 +466,7 @@ bool setupStaticObjectsAndMemory(vksift_SiftMemory memory)
 
   // Create the SIFT staging buffer
   res = true;
-  VkDeviceSize sift_staging_buffer_size = memory->max_nb_sift_per_buffer * sizeof(vksift_Feature) + sizeof(uint32_t);
+  VkDeviceSize sift_staging_buffer_size = memory->max_nb_sift_per_buffer * sizeof(vksift_Feature) + sizeof(uint32_t) * 2;
   res = res && vkenv_createBuffer(&memory->sift_staging_buffer, memory->device, 0, sift_staging_buffer_size,
                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL);
   if (res)
